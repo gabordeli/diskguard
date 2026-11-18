@@ -195,12 +195,17 @@ def collect_paths(core, label_plugin=None) -> list[PathUse]:
             uses.append(use)
 
     try:
-        config = core.get_config_values(["download_location"])
+        config = core.get_config_values(
+            ["download_location", "move_completed", "move_completed_path"]
+        )
     except Exception:
         config = {}
     default = config.get("download_location")
     if default:
         add(PathUse(path=default, kind="session"))
+    move_target = config.get("move_completed_path")
+    if config.get("move_completed") and move_target:
+        add(PathUse(path=move_target, kind="move_completed"))
 
     label_map = getattr(label_plugin, "torrent_labels", {}) or {}
     label_options: dict[str, dict] = {}
@@ -209,7 +214,14 @@ def collect_paths(core, label_plugin=None) -> list[PathUse]:
     for torrent_id, torrent in torrents.items():
         try:
             status = torrent.get_status(
-                ["download_location", "save_path", "state", "total_size"],
+                [
+                    "download_location",
+                    "save_path",
+                    "state",
+                    "total_size",
+                    "move_completed",
+                    "move_completed_path",
+                ],
                 update=False,
             )
         except Exception:
@@ -230,6 +242,16 @@ def collect_paths(core, label_plugin=None) -> list[PathUse]:
                         size=int(status.get("total_size") or 0),
                     )
                 )
+        if status.get("move_completed") and status.get("move_completed_path"):
+            add(
+                PathUse(
+                    path=status["move_completed_path"],
+                    torrent_id=torrent_id,
+                    label=label,
+                    size=int(status.get("total_size") or 0),
+                    kind="move_completed",
+                )
+            )
         if label and label_plugin is not None and label not in label_options:
             try:
                 label_options[label] = label_plugin.get_options(label) or {}

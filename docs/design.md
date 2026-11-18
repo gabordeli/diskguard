@@ -18,7 +18,9 @@ A full disk therefore shows up late, as a write error or a stalled torrent.
 - Map every path Deluge can write to a filesystem:
   - session `download_location`;
   - per-torrent `download_location` (active) and `save_path` (completed);
-  - Label `move_completed_path` when `apply_move_completed` is on.
+  - session and per-torrent `move_completed_path` when `move_completed` is on;
+  - Label `move_completed_path` when both `apply_move_completed` and
+    `move_completed` are on.
 - Expose a stable `disks[]` payload for the mobile UI.
 - Guard per filesystem: pause only the torrents writing to a low disk;
   resume them after hysteresis.
@@ -56,6 +58,10 @@ mounts the resources and keeps the single auth/push/SSE boundary.
 
 Every `PathUse` carries `path`, optional `torrent_id`, `label`, `active`,
 `size` and `kind`. The adapter deduplicates by `(path, torrent_id)`.
+
+Move targets use `kind="move_completed"` and `active=False`: they are visible
+in the storage payload and can trigger a low-disk notification, but they do not
+make the guard pause downloads that are still writing to another disk.
 
 Grouping is by `st_dev`, not by path string:
 

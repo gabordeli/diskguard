@@ -16,8 +16,8 @@ not check free space, and there is no `max_disk_space` setting. The stock UI
 shows one value, for one path. DiskGuard fills that gap:
 
 - discovers real mounts and filesystem stats;
-- maps the session default, torrent paths and Label `move_completed_path`
-  targets to filesystems;
+- maps the session default, torrent paths, and session/torrent/Label
+  `move_completed_path` targets to filesystems;
 - exposes a stable `disks[]` payload;
 - runs a per-filesystem guard with hysteresis and notifications.
 
