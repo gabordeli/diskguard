@@ -10,6 +10,7 @@ variables:
   - python3 -m venv .ci-venv
   - .ci-venv/bin/pip install -q --upgrade pip
   - .ci-venv/bin/pip install -q pytest pytest-cov ruff build twisted wheel setuptools
+  - .ci-venv/bin/pip install -q -e .
 
 .python_job:
   cache:
