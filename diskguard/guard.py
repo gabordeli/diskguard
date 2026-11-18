@@ -160,6 +160,8 @@ def evaluate(
     """
     events: list[dict] = []
     for disk in disks:
+        if not disk.get("deluge", True):
+            continue
         mount = disk["mount"]
         settings = settings_for(mount, default, per_mount)
         free = int(disk.get("free") or 0)

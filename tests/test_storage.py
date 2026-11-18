@@ -305,6 +305,52 @@ def test_build_disks_drops_disk_when_mount_stat_fails():
     assert unknown == ["/mnt/usbhdd2/a"]
 
 
+def test_build_disks_skips_mount_that_raises():
+    mounts = [
+        Mount("/dev/sda1", "/mnt/bad", "ext4"),
+        Mount("/dev/sdb1", "/mnt/ok", "ext4"),
+    ]
+    uses = [PathUse("/mnt/bad/a", "t1"), PathUse("/mnt/ok/b", "t2")]
+    stats = {"/mnt/ok": DiskStat(100, 50, 50)}
+    devs = {"/mnt/bad/a": 1, "/mnt/ok/b": 2}
+
+    def stat(path):
+        if path == "/mnt/bad":
+            raise RuntimeError("hung mount")
+        return stats.get(path)
+
+    disks, unknown = build_disks(
+        uses,
+        mounts,
+        include_all=False,
+        stat_fn=stat,
+        dev_fn=devs.get,
+    )
+
+    assert [disk["mount"] for disk in disks] == ["/mnt/ok"]
+    assert unknown == ["/mnt/bad/a"]
+
+
+def test_build_disks_dev_error_is_unknown():
+    mounts = [Mount("/dev/sda1", "/", "ext4")]
+
+    def dev(path):
+        if path == "/bad":
+            raise RuntimeError("device lookup failed")
+        return 1
+
+    disks, unknown = build_disks(
+        [PathUse("/bad"), PathUse("/ok")],
+        mounts,
+        include_all=False,
+        stat_fn=lambda path: DiskStat(100, 50, 50),
+        dev_fn=dev,
+    )
+
+    assert [disk["mount"] for disk in disks] == ["/"]
+    assert unknown == ["/bad"]
+
+
 def test_build_disks_marks_deluge_used_and_unused_mounts():
     mounts = [
         Mount("/dev/sda1", "/", "ext4"),

@@ -60,6 +60,23 @@ def test_evaluate_hysteresis():
     assert state.low_mounts == set()
 
 
+def test_evaluate_skips_non_deluge_disks():
+    default, per_mount = settings_from_config(
+        {"default_min_free_gb": 10, "resume_margin_gb": 5}
+    )
+    state = GuardState()
+
+    events = evaluate(
+        [{"mount": "/mnt/backup", "free": 0, "deluge": False}],
+        default,
+        per_mount,
+        state,
+    )
+
+    assert events == []
+    assert state.low_mounts == set()
+
+
 def test_torrents_to_pause_only_active_on_mount():
     mounts = [
         Mount("/dev/sdb1", "/mnt/usbhdd2", "ext4"),

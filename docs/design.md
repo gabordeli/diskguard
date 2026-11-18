@@ -104,9 +104,19 @@ the torrent manager.
 
 ## Performance
 
-`os.statvfs` is cheap on local disks; a hung NFS/CIFS mount can block. The
-read path caches the last payload for the UI; the guard loop runs stats in
-`deferToThread` (or a bounded executor) and never in the reactor callback.
+`os.statvfs` is cheap on local disks; a hung NFS/CIFS mount can block.
+
+## Guard loop
+
+`Core.enable()` starts a Twisted `LoopingCall` (`GUARD_POLL_SECONDS = 30`);
+`disable()` stops it idempotently. Path and mount collection runs on the
+reactor using cached torrent status. `storage.build_disks()` (`st_dev` +
+`statvfs`) runs in `deferToThread`; the result is applied back on the reactor,
+where `guard.evaluate()` updates `GuardState` and the payload cache. A hung
+network mount therefore cannot block `deluged`; one failed poll keeps the
+previous cached payload, resets the in-flight flag and the next tick retries.
+Only disks with `deluge: true` are evaluated, so backup disks are visible but
+not guarded.
 
 ## Security
 

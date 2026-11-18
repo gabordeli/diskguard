@@ -286,12 +286,13 @@ def build_disks(
     unknown: list[str] = []
 
     for use in uses:
-        mount = canonical_mount(use.path, mounts)
-        if mount is None:
-            unknown.append(use.path)
-            continue
-        dev = dev_fn(use.path)
-        if dev is None:
+        try:
+            mount = canonical_mount(use.path, mounts)
+            dev = dev_fn(use.path) if mount is not None else None
+        except Exception:
+            mount = None
+            dev = None
+        if mount is None or dev is None:
             unknown.append(use.path)
             continue
         group = groups.setdefault(
@@ -314,7 +315,10 @@ def build_disks(
     disks: list[Disk] = []
     for group in groups.values():
         mount = group["mount"]
-        stat = stat_fn(mount.mountpoint)
+        try:
+            stat = stat_fn(mount.mountpoint)
+        except Exception:
+            stat = None
         if stat is None:
             unknown.extend(sorted(group["paths"]))
             continue
@@ -333,10 +337,13 @@ def build_disks(
     if include_all:
         used_devs = set(groups)
         for mount in real_mounts(mounts):
-            dev = dev_fn(mount.mountpoint)
-            if dev is None or dev in used_devs:
+            try:
+                dev = dev_fn(mount.mountpoint)
+                if dev is None or dev in used_devs:
+                    continue
+                stat = stat_fn(mount.mountpoint)
+            except Exception:
                 continue
-            stat = stat_fn(mount.mountpoint)
             if stat is None:
                 continue
             disks.append(Disk(mount=mount.mountpoint, fstype=mount.fstype, stat=stat))
