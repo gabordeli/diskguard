@@ -67,6 +67,12 @@ Grouping is by `st_dev`, not by path string:
 `include_all` adds every real mount (pseudo filesystems filtered) with
 `deluge: false`, so backup disks are visible without being guarded.
 
+Inside a Docker container `/proc/self/mounts` shows the container's mount
+namespace: the `overlay` root is filtered as a pseudo filesystem, while
+bind-mounted host disks appear normally. A download directory that lives only
+on the container's overlay layer is therefore not listed; mount it as a volume
+if it should be visible to DiskGuard.
+
 ## Guard semantics
 
 For each mount with a threshold:
