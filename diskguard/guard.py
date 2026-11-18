@@ -30,6 +30,7 @@ class GuardSettings:
 class GuardState:
     low_mounts: set[str] = field(default_factory=set)
     paused_torrents: set[str] = field(default_factory=set)
+    paused_by_mount: dict[str, set[str]] = field(default_factory=dict)
 
 
 def _non_negative_float(value, name: str) -> float:
@@ -189,8 +190,10 @@ def torrents_to_pause(
     mounts: list[Mount],
     mount: str,
     already_paused: set[str],
+    mountpoints: set[str] | None = None,
 ) -> set[str]:
     """Torrents that are actively writing to ``mount`` and not yet guarded."""
+    allowed = mountpoints or {mount}
     ids: set[str] = set()
     for use in uses:
         if not use.torrent_id or not use.active:
@@ -198,6 +201,15 @@ def torrents_to_pause(
         if use.torrent_id in already_paused:
             continue
         mapped = canonical_mount(use.path, mounts)
-        if mapped is not None and mapped.mountpoint == mount:
+        if mapped is not None and mapped.mountpoint in allowed:
             ids.add(use.torrent_id)
     return ids
+
+
+def torrents_to_resume(
+    state: GuardState,
+    mount: str,
+    existing: set[str],
+) -> set[str]:
+    """Guard-paused torrents for ``mount`` that still exist."""
+    return set(state.paused_by_mount.get(mount, set())) & existing

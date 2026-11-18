@@ -6,6 +6,7 @@ from diskguard.guard import (
     evaluate,
     settings_from_config,
     torrents_to_pause,
+    torrents_to_resume,
     validate_guard_config,
 )
 from diskguard.storage import Mount, PathUse
@@ -89,6 +90,33 @@ def test_torrents_to_pause_only_active_on_mount():
     ]
     assert torrents_to_pause(uses, mounts, "/mnt/usbhdd2", set()) == {"t1"}
     assert torrents_to_pause(uses, mounts, "/mnt/usbhdd2", {"t1"}) == set()
+
+
+def test_torrents_to_pause_respects_mount_aliases():
+    mounts = [
+        Mount("/dev/sdb1", "/mnt/usbhdd2", "ext4"),
+        Mount("/dev/sdb1", "/mnt/usbhdd2/bind", "ext4"),
+    ]
+    uses = [PathUse("/mnt/usbhdd2/a", "t1", active=True)]
+
+    assert torrents_to_pause(
+        uses,
+        mounts,
+        "/mnt/usbhdd2/bind",
+        set(),
+        {"/mnt/usbhdd2", "/mnt/usbhdd2/bind"},
+    ) == {"t1"}
+
+
+def test_torrents_to_resume_only_guard_paused_existing():
+    state = GuardState(
+        paused_torrents={"t1", "t2"},
+        paused_by_mount={"/mnt/usbhdd2": {"t1"}},
+    )
+
+    assert torrents_to_resume(state, "/mnt/usbhdd2", {"t1", "t2"}) == {"t1"}
+    assert torrents_to_resume(state, "/mnt/usbhdd2", set()) == set()
+    assert torrents_to_resume(state, "/mnt/other", {"t1"}) == set()
 
 
 def test_validate_guard_config_normalises_partial_payload():

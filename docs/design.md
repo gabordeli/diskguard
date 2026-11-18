@@ -92,21 +92,23 @@ Actions:
 - `notify`: emit an event, no torrent changes.
 - `pause`: pause torrents whose `download_location` maps to the low mount and
   whose state is in `ACTIVE_STATES` (`Allocating`, `Checking`, `Downloading`,
-  `Moving`, `Queued`).
+  `Moving`, `Queued`). Mountpoints sharing the target disk's `st_dev` are
+  treated as aliases, so a torrent under a shorter bind mount is still paused.
 
 Seeding is never paused by the guard. A completed torrent does not write, and
-pausing it can hurt HnR. `paused_torrents` tracks only guard-paused IDs, so a
-manual user pause is never undone by an automatic resume.
+pausing it can hurt HnR. `paused_torrents` tracks only guard-paused IDs, and
+`paused_by_mount` keeps the per-disk subset, so an `ok` event only resumes
+torrents the guard paused for that disk. The current state of every candidate
+is re-read before pausing, so a torrent the user paused after the snapshot is
+left alone.
 
-The guard loop belongs in `core.py` (M2). It will poll at a low frequency,
-run `statvfs` in a thread for network mounts, and apply transitions through
-the torrent manager.
+The guard loop lives in `core.py`: a low-frequency `LoopingCall` runs
+`statvfs` in a thread for network mounts and applies transitions through the
+Deluge core's torrent manager.
 
-## Performance
+## Performance and guard loop
 
 `os.statvfs` is cheap on local disks; a hung NFS/CIFS mount can block.
-
-## Guard loop
 
 `Core.enable()` starts a Twisted `LoopingCall` (`GUARD_POLL_SECONDS = 30`);
 `disable()` stops it idempotently. Path and mount collection runs on the

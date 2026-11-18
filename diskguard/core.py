@@ -58,15 +58,21 @@ class Core(CorePluginBase):
         # The guard loop refreshes state; reads use the cached payload.
         pass
 
-    def _collect_uses(self):
+    def _core(self):
         from deluge import component
 
-        core = component.get("Core")
+        return component.get("Core")
+
+    def _label_plugin(self):
+        from deluge import component
+
         try:
-            label_plugin = component.get("CorePlugin.Label")
+            return component.get("CorePlugin.Label")
         except KeyError:
-            label_plugin = None
-        return storage.collect_paths(core, label_plugin)
+            return None
+
+    def _collect_uses(self):
+        return storage.collect_paths(self._core(), self._label_plugin())
 
     def _thresholds(self, mounts):
         default, per_mount = guard.settings_from_config(self.config or {})
@@ -94,7 +100,7 @@ class Core(CorePluginBase):
             return None
 
         deferred = threads.deferToThread(
-            storage.build_disks, uses, mounts, thresholds=thresholds
+            self._build_payload, uses, mounts, thresholds
         )
         deferred.addCallback(self._apply_payload)
         deferred.addErrback(self._poll_failed)
@@ -109,11 +115,18 @@ class Core(CorePluginBase):
         self._polling = False
         return result
 
+    def _build_payload(self, uses, mounts, thresholds):
+        disks, unknown = storage.build_disks(
+            uses, mounts, thresholds=thresholds
+        )
+        return uses, mounts, storage.mount_aliases(mounts), disks, unknown
+
     def _apply_payload(self, payload):
-        disks, unknown = payload
+        uses, mounts, aliases, disks, unknown = payload
         self._cache = {"disks": disks, "unknown": unknown}
         default, per_mount = guard.settings_from_config(self.config or {})
-        for event in guard.evaluate(disks, default, per_mount, self._state):
+        events = guard.evaluate(disks, default, per_mount, self._state)
+        for event in events:
             if event["event"] == "low":
                 log.warning(
                     "DiskGuard: %s low, %.1f GiB free",
@@ -126,7 +139,102 @@ class Core(CorePluginBase):
                     event["mount"],
                     event["free"] / guard.GIB,
                 )
+        self._apply_events(events, uses, mounts, aliases)
         return payload
+
+    def _apply_events(self, events, uses, mounts, aliases=None):
+        if not events or not self._enabled():
+            return
+        aliases = aliases or {}
+        try:
+            core = self._core()
+        except KeyError:
+            log.warning("DiskGuard: Deluge core unavailable")
+            return
+        torrents = getattr(getattr(core, "torrentmanager", None), "torrents", {})
+        if not isinstance(torrents, dict):
+            torrents = {}
+        existing = set(torrents)
+        state = self._state
+        state.paused_torrents &= existing
+        for mount in list(state.paused_by_mount):
+            state.paused_by_mount[mount] &= existing
+            if not state.paused_by_mount[mount]:
+                del state.paused_by_mount[mount]
+
+        for event in events:
+            mount = event["mount"]
+            if event["event"] == "low" and event.get("action") == "pause":
+                ids = guard.torrents_to_pause(
+                    uses,
+                    mounts,
+                    mount,
+                    state.paused_torrents,
+                    aliases.get(mount, {mount}),
+                ) & existing
+                ids = self._active_ids(torrents, ids)
+                if not ids:
+                    continue
+                paused = self._per_torrent(
+                    core.pause_torrents, ids, "pause"
+                )
+                if not paused:
+                    continue
+                state.paused_torrents.update(paused)
+                state.paused_by_mount.setdefault(mount, set()).update(paused)
+                log.warning(
+                    "DiskGuard: paused %d torrent(s) on %s",
+                    len(paused),
+                    mount,
+                )
+            elif event["event"] == "ok":
+                ids = guard.torrents_to_resume(
+                    state, mount, existing
+                ) & state.paused_torrents
+                resumed = self._per_torrent(
+                    core.resume_torrents, ids, "resume"
+                )
+                state.paused_torrents.difference_update(resumed)
+                failed = ids - resumed
+                if failed:
+                    state.paused_by_mount[mount] = failed
+                else:
+                    state.paused_by_mount.pop(mount, None)
+                if resumed:
+                    log.info(
+                        "DiskGuard: resumed %d torrent(s) on %s",
+                        len(resumed),
+                        mount,
+                    )
+
+    @staticmethod
+    def _per_torrent(action, ids, verb):
+        done = set()
+        for torrent_id in sorted(ids):
+            try:
+                action([torrent_id])
+            except Exception:
+                log.exception(
+                    "DiskGuard: %s failed for %s", verb, torrent_id
+                )
+            else:
+                done.add(torrent_id)
+        return done
+
+    @staticmethod
+    def _active_ids(torrents, ids):
+        active = set()
+        for torrent_id in ids:
+            torrent = torrents.get(torrent_id)
+            if torrent is None:
+                continue
+            try:
+                status = torrent.get_status(["state"], update=False)
+            except Exception:
+                continue
+            if status and status.get("state") in storage.ACTIVE_STATES:
+                active.add(torrent_id)
+        return active
 
     def mounts(self):
         try:

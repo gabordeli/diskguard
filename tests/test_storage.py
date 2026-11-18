@@ -13,6 +13,7 @@ from diskguard.storage import (
     collect_paths,
     device_id,
     disk_stat,
+    mount_aliases,
     parse_mounts,
     real_mounts,
 )
@@ -387,6 +388,23 @@ def test_build_disks_marks_deluge_used_and_unused_mounts():
 
 def test_disk_stat_missing_path_returns_none():
     assert disk_stat("/diskguard/definitely-missing-path") is None
+
+
+def test_mount_aliases_groups_bind_mounts_by_device():
+    mounts = [
+        Mount("/dev/sda1", "/mnt/a", "ext4"),
+        Mount("/dev/sda1", "/mnt/a/bind", "ext4"),
+        Mount("/dev/sdb1", "/mnt/b", "ext4"),
+        Mount("proc", "/proc", "proc"),
+    ]
+    devs = {"/mnt/a": 2, "/mnt/a/bind": 2, "/mnt/b": 3}
+
+    aliases = mount_aliases(mounts, dev_fn=devs.get)
+
+    assert aliases["/mnt/a"] == {"/mnt/a", "/mnt/a/bind"}
+    assert aliases["/mnt/a/bind"] == {"/mnt/a", "/mnt/a/bind"}
+    assert aliases["/mnt/b"] == {"/mnt/b"}
+    assert "/proc" not in aliases
 
 
 def test_collect_paths_session_default_only():

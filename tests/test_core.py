@@ -1,5 +1,6 @@
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 from twisted.internet import defer
@@ -7,6 +8,7 @@ from twisted.internet import defer
 from diskguard import CorePlugin
 from diskguard import core as core_module
 from diskguard.core import Core
+from diskguard.storage import Mount, PathUse
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("DISKGUARD_REAL_DELUGE") == "1",
@@ -175,8 +177,9 @@ def test_poll_runs_build_disks_off_reactor(monkeypatch):
 
     core._poll()
 
-    assert captured["func"] is core_module.storage.build_disks
-    assert captured["kwargs"] == {"thresholds": {}}
+    assert captured["func"].__name__ == "_build_payload"
+    assert captured["args"] == ([], [], {})
+    assert captured["kwargs"] == {}
     assert core._cache == {"disks": [], "unknown": []}
     assert core._polling is False
 
@@ -220,15 +223,20 @@ def test_poll_skips_when_disabled(monkeypatch):
 def test_apply_payload_emits_low_once(monkeypatch, caplog):
     core = _enabled_core(monkeypatch)
     disks = [{"mount": "/mnt/x", "free": 1, "deluge": True}]
+    monkeypatch.setattr(
+        core,
+        "_apply_events",
+        lambda events, uses, mounts, aliases: None,
+    )
 
     with caplog.at_level("WARNING"):
-        core._apply_payload((disks, []))
+        core._apply_payload(([], [], {}, disks, []))
     assert core._state.low_mounts == {"/mnt/x"}
     assert sum("low" in record.getMessage() for record in caplog.records) == 1
 
     caplog.clear()
     with caplog.at_level("WARNING"):
-        core._apply_payload((disks, []))
+        core._apply_payload(([], [], {}, disks, []))
     assert caplog.records == []
 
 
@@ -252,3 +260,176 @@ def test_set_guard_config_invalidates_cache(monkeypatch):
     core.set_guard_config({"default_min_free_gb": 12})
 
     assert core._cache is None
+
+
+class FakeActionTorrent:
+    def __init__(self, state):
+        self.state = state
+
+    def get_status(self, keys, update=False):
+        assert update is False
+        return {"state": self.state}
+
+
+class FakeActionCore:
+    def __init__(self, states):
+        torrents = {
+            torrent_id: FakeActionTorrent(state)
+            for torrent_id, state in states.items()
+        }
+        self.torrentmanager = SimpleNamespace(torrents=torrents)
+        self.paused = []
+        self.resumed = []
+
+    def pause_torrents(self, ids):
+        self.paused.append(list(ids))
+
+    def resume_torrents(self, ids):
+        self.resumed.append(list(ids))
+
+
+def _action_core(monkeypatch, states):
+    core = _enabled_core(monkeypatch)
+    fake = FakeActionCore(states)
+    monkeypatch.setattr(core, "_core", lambda: fake)
+    return core, fake
+
+
+def test_apply_events_pauses_only_affected_active_torrents(monkeypatch):
+    core, fake = _action_core(
+        monkeypatch,
+        {"t1": "Downloading", "t2": "Downloading", "t3": "Seeding"},
+    )
+    mounts = [
+        Mount("/dev/sda1", "/mnt/a", "ext4"),
+        Mount("/dev/sdb1", "/mnt/b", "ext4"),
+    ]
+    uses = [
+        PathUse("/mnt/a/one", "t1", active=True),
+        PathUse("/mnt/b/two", "t2", active=True),
+        PathUse("/mnt/a/seed", "t3", active=False),
+    ]
+
+    core._apply_events(
+        [{"mount": "/mnt/a", "event": "low", "action": "pause"}],
+        uses,
+        mounts,
+    )
+
+    assert fake.paused == [["t1"]]
+    assert core._state.paused_torrents == {"t1"}
+    assert core._state.paused_by_mount == {"/mnt/a": {"t1"}}
+
+
+def test_apply_events_pauses_bind_mount_aliases(monkeypatch):
+    core, fake = _action_core(monkeypatch, {"t1": "Downloading"})
+    mounts = [
+        Mount("/dev/sda1", "/mnt/a", "ext4"),
+        Mount("/dev/sda1", "/mnt/a/bind", "ext4"),
+    ]
+    uses = [PathUse("/mnt/a/one", "t1", active=True)]
+
+    core._apply_events(
+        [{"mount": "/mnt/a/bind", "event": "low", "action": "pause"}],
+        uses,
+        mounts,
+        {"/mnt/a/bind": {"/mnt/a", "/mnt/a/bind"}},
+    )
+
+    assert fake.paused == [["t1"]]
+
+
+def test_apply_events_continues_when_one_pause_fails(monkeypatch):
+    core, fake = _action_core(
+        monkeypatch, {"t1": "Downloading", "t2": "Downloading"}
+    )
+    mounts = [Mount("/dev/sda1", "/mnt/a", "ext4")]
+    uses = [
+        PathUse("/mnt/a/one", "t1", active=True),
+        PathUse("/mnt/a/two", "t2", active=True),
+    ]
+
+    def pause(ids):
+        if ids == ["t2"]:
+            raise KeyError("torrent disappeared")
+        fake.paused.append(list(ids))
+
+    fake.pause_torrents = pause
+
+    core._apply_events(
+        [{"mount": "/mnt/a", "event": "low", "action": "pause"}],
+        uses,
+        mounts,
+    )
+
+    assert fake.paused == [["t1"]]
+    assert core._state.paused_torrents == {"t1"}
+
+
+def test_apply_events_respects_manual_pause_after_snapshot(monkeypatch):
+    core, fake = _action_core(monkeypatch, {"t1": "Paused"})
+    mounts = [Mount("/dev/sda1", "/mnt/a", "ext4")]
+    uses = [PathUse("/mnt/a/one", "t1", active=True)]
+
+    core._apply_events(
+        [{"mount": "/mnt/a", "event": "low", "action": "pause"}],
+        uses,
+        mounts,
+    )
+
+    assert fake.paused == []
+    assert core._state.paused_torrents == set()
+
+
+def test_apply_events_resumes_only_guard_paused_torrents(monkeypatch):
+    core, fake = _action_core(
+        monkeypatch, {"t1": "Paused", "manual": "Paused"}
+    )
+    core._state.paused_torrents = {"t1", "manual"}
+    core._state.paused_by_mount = {"/mnt/a": {"t1"}}
+
+    core._apply_events([{"mount": "/mnt/a", "event": "ok"}], [], [])
+
+    assert fake.resumed == [["t1"]]
+    assert core._state.paused_torrents == {"manual"}
+    assert core._state.paused_by_mount == {}
+
+
+def test_apply_events_handles_disappeared_torrent(monkeypatch):
+    core, fake = _action_core(monkeypatch, {})
+    core._state.paused_torrents = {"gone"}
+    core._state.paused_by_mount = {"/mnt/a": {"gone"}}
+
+    core._apply_events([{"mount": "/mnt/a", "event": "ok"}], [], [])
+
+    assert fake.resumed == []
+    assert core._state.paused_torrents == set()
+    assert core._state.paused_by_mount == {}
+
+
+def test_apply_events_is_idempotent(monkeypatch):
+    core, fake = _action_core(monkeypatch, {"t1": "Downloading"})
+    mounts = [Mount("/dev/sda1", "/mnt/a", "ext4")]
+    uses = [PathUse("/mnt/a/one", "t1", active=True)]
+    events = [{"mount": "/mnt/a", "event": "low", "action": "pause"}]
+
+    core._apply_events(events, uses, mounts)
+    core._apply_events(events, uses, mounts)
+
+    assert fake.paused == [["t1"]]
+    assert core._state.paused_torrents == {"t1"}
+
+
+def test_apply_events_notify_action_does_not_pause(monkeypatch):
+    core, fake = _action_core(monkeypatch, {"t1": "Downloading"})
+    mounts = [Mount("/dev/sda1", "/mnt/a", "ext4")]
+    uses = [PathUse("/mnt/a/one", "t1", active=True)]
+
+    core._apply_events(
+        [{"mount": "/mnt/a", "event": "low", "action": "notify"}],
+        uses,
+        mounts,
+    )
+
+    assert fake.paused == []
+    assert core._state.paused_torrents == set()

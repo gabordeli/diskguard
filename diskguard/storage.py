@@ -179,6 +179,27 @@ def device_id(path: str) -> int | None:
         return None
 
 
+def mount_aliases(
+    mounts: Sequence[Mount],
+    *,
+    dev_fn: Callable[[str], int | None] = device_id,
+) -> dict[str, set[str]]:
+    """Map each mountpoint to all mountpoints on the same ``st_dev``."""
+    by_dev: dict[int, set[str]] = {}
+    aliases: dict[str, set[str]] = {}
+    for mount in real_mounts(mounts):
+        try:
+            dev = dev_fn(mount.mountpoint)
+        except Exception:
+            continue
+        if dev is None:
+            continue
+        group = by_dev.setdefault(dev, set())
+        group.add(mount.mountpoint)
+        aliases[mount.mountpoint] = group
+    return aliases
+
+
 def collect_paths(core, label_plugin=None) -> list[PathUse]:
     """Collect paths Deluge can write to.
 
