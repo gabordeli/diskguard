@@ -80,45 +80,9 @@ class Core(CorePluginBase):
         }
 
     def set_guard_config(self, payload):
-        if not isinstance(payload, dict):
-            raise ValueError("config must be an object")
-        allowed = {
-            "enabled",
-            "default_min_free_gb",
-            "resume_margin_gb",
-            "per_mount",
-        }
-        unknown = set(payload) - allowed
-        if unknown:
-            raise ValueError(f"unknown config keys: {', '.join(sorted(unknown))}")
-
-        if "enabled" in payload:
-            self.config["enabled"] = bool(payload["enabled"])
-        for key in ("default_min_free_gb", "resume_margin_gb"):
-            if key in payload:
-                self.config[key] = _non_negative_float(payload[key], key)
-        if "per_mount" in payload:
-            per_mount = payload["per_mount"]
-            if not isinstance(per_mount, dict):
-                raise ValueError("per_mount must be an object")
-            clean = {}
-            for mount, raw in per_mount.items():
-                if not isinstance(raw, dict):
-                    raise ValueError(f"per_mount[{mount}] must be an object")
-                entry = {}
-                for key in ("min_free_gb", "resume_margin_gb"):
-                    if key in raw:
-                        entry[key] = _non_negative_float(
-                            raw[key], f"per_mount[{mount}].{key}"
-                        )
-                if "action" in raw:
-                    if raw["action"] not in guard.ACTIONS:
-                        raise ValueError(
-                            f"per_mount[{mount}].action must be notify or pause"
-                        )
-                    entry["action"] = raw["action"]
-                clean[mount] = entry
-            self.config["per_mount"] = clean
+        clean = guard.validate_guard_config(payload)
+        for key, value in clean.items():
+            self.config[key] = value
         self.config.save()
         return self.get_guard_config()
 
@@ -127,13 +91,3 @@ class Core(CorePluginBase):
             "low_mounts": sorted(self._state.low_mounts),
             "paused_torrents": sorted(self._state.paused_torrents),
         }
-
-
-def _non_negative_float(value, name):
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as ex:
-        raise ValueError(f"{name} must be a number") from ex
-    if number < 0:
-        raise ValueError(f"{name} must be >= 0")
-    return number

@@ -79,9 +79,10 @@ Normal auth level. Accepts any subset of:
 
 Validation:
 
-- numbers must be `>= 0`;
+- `enabled` must be a boolean;
+- numbers must be finite and `>= 0`;
 - `action` is `pause` or `notify`;
-- unknown keys are rejected with `400`;
+- unknown top-level or per-mount keys are rejected with `400`;
 - the response is the same shape as `GET /api/storage/guard`.
 
 ## Authz

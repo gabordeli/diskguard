@@ -50,8 +50,16 @@ Restarting the daemon is a separate operational step; confirm it on the host.
 - `default_min_free_gb`: threshold for mounts without an override.
 - `resume_margin_gb`: hysteresis; resume only above
   `min_free_gb + resume_margin_gb`.
-- `action`: `pause` (pause affected downloads) or `notify` (event only).
-- `per_mount`: optional overrides keyed by mountpoint.
+- `per_mount`: optional overrides keyed by mountpoint. Each entry supports
+  `min_free_gb`, `resume_margin_gb` and `action`.
+- `action`: `pause` (pause affected downloads) or `notify` (event only);
+  the per-mount value wins over the default.
+
+Validation rules (enforced by `set_guard_config`):
+
+- `enabled` must be a boolean;
+- numbers must be finite and `>= 0`;
+- unknown top-level or per-mount keys are rejected.
 
 ## Verify
 

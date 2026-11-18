@@ -6,12 +6,17 @@ the returned transitions to torrents and notifications.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from .storage import Mount, PathUse, canonical_mount
 
 GIB = 1024**3
 ACTIONS = frozenset({"notify", "pause"})
+CONFIG_KEYS = frozenset(
+    {"enabled", "default_min_free_gb", "resume_margin_gb", "per_mount"}
+)
+MOUNT_KEYS = frozenset({"min_free_gb", "resume_margin_gb", "action"})
 
 
 @dataclass(frozen=True)
@@ -27,10 +32,78 @@ class GuardState:
     paused_torrents: set[str] = field(default_factory=set)
 
 
+def _non_negative_float(value, name: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as ex:
+        raise ValueError(f"{name} must be a number") from ex
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be finite")
+    if number < 0:
+        raise ValueError(f"{name} must be >= 0")
+    return number
+
+
+def validate_guard_config(payload: dict) -> dict:
+    """Validate a partial guard config and return normalised known keys.
+
+    The returned dict can be merged into the plugin config. ``ValueError``
+    carries a client-safe message; the webui2 layer maps it to HTTP 400.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("config must be an object")
+    unknown = set(payload) - CONFIG_KEYS
+    if unknown:
+        raise ValueError(
+            f"unknown config keys: {', '.join(sorted(map(str, unknown)))}"
+        )
+
+    clean: dict = {}
+    if "enabled" in payload:
+        if not isinstance(payload["enabled"], bool):
+            raise ValueError("enabled must be a boolean")
+        clean["enabled"] = payload["enabled"]
+    for key in ("default_min_free_gb", "resume_margin_gb"):
+        if key in payload:
+            clean[key] = _non_negative_float(payload[key], key)
+
+    if "per_mount" in payload:
+        per_mount = payload["per_mount"]
+        if not isinstance(per_mount, dict):
+            raise ValueError("per_mount must be an object")
+        mounts: dict[str, dict] = {}
+        for mount, raw in per_mount.items():
+            if not isinstance(mount, str) or not mount:
+                raise ValueError("per_mount keys must be non-empty mountpoints")
+            if not isinstance(raw, dict):
+                raise ValueError(f"per_mount[{mount}] must be an object")
+            unknown_mount = set(raw) - MOUNT_KEYS
+            if unknown_mount:
+                raise ValueError(
+                    f"unknown per_mount keys for {mount}: "
+                    f"{', '.join(sorted(map(str, unknown_mount)))}"
+                )
+            entry: dict = {}
+            for key in ("min_free_gb", "resume_margin_gb"):
+                if key in raw:
+                    entry[key] = _non_negative_float(
+                        raw[key], f"per_mount[{mount}].{key}"
+                    )
+            if "action" in raw:
+                if raw["action"] not in ACTIONS:
+                    raise ValueError(
+                        f"per_mount[{mount}].action must be notify or pause"
+                    )
+                entry["action"] = raw["action"]
+            mounts[mount] = entry
+        clean["per_mount"] = mounts
+    return clean
+
+
 def _gb(value, fallback: int) -> int:
     try:
         return max(0, int(float(value) * GIB))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fallback
 
 
@@ -44,8 +117,11 @@ def settings_from_config(
     default_margin = _gb(default_margin_gb, 5 * GIB)
     default = GuardSettings(default_min, default_margin, "pause")
 
+    raw_per_mount = config.get("per_mount") or {}
+    if not isinstance(raw_per_mount, dict):
+        raw_per_mount = {}
     per_mount: dict[str, GuardSettings] = {}
-    for mount, raw in (config.get("per_mount") or {}).items():
+    for mount, raw in raw_per_mount.items():
         if not isinstance(raw, dict):
             continue
         action = raw.get("action", "pause")

@@ -1,9 +1,12 @@
+import pytest
+
 from diskguard.guard import (
     GIB,
     GuardState,
     evaluate,
     settings_from_config,
     torrents_to_pause,
+    validate_guard_config,
 )
 from diskguard.storage import Mount, PathUse
 
@@ -69,3 +72,82 @@ def test_torrents_to_pause_only_active_on_mount():
     ]
     assert torrents_to_pause(uses, mounts, "/mnt/usbhdd2", set()) == {"t1"}
     assert torrents_to_pause(uses, mounts, "/mnt/usbhdd2", {"t1"}) == set()
+
+
+def test_validate_guard_config_normalises_partial_payload():
+    assert validate_guard_config(
+        {
+            "enabled": False,
+            "default_min_free_gb": 20,
+            "per_mount": {
+                "/mnt/usbhdd2": {
+                    "min_free_gb": 30,
+                    "resume_margin_gb": 6,
+                    "action": "notify",
+                }
+            },
+        }
+    ) == {
+        "enabled": False,
+        "default_min_free_gb": 20.0,
+        "per_mount": {
+            "/mnt/usbhdd2": {
+                "min_free_gb": 30.0,
+                "resume_margin_gb": 6.0,
+                "action": "notify",
+            }
+        },
+    }
+
+
+def test_validate_guard_config_accepts_zero_and_empty_mount_entry():
+    assert validate_guard_config(
+        {"default_min_free_gb": 0, "per_mount": {"/mnt/x": {}}}
+    ) == {"default_min_free_gb": 0.0, "per_mount": {"/mnt/x": {}}}
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ([], "config must be an object"),
+        ({"nope": 1}, "unknown config keys"),
+        ({1: "x"}, "unknown config keys"),
+        ({"default_min_free_gb": -1}, "must be >= 0"),
+        ({"resume_margin_gb": "x"}, "must be a number"),
+        ({"default_min_free_gb": float("nan")}, "must be finite"),
+        ({"default_min_free_gb": float("inf")}, "must be finite"),
+        ({"enabled": "yes"}, "enabled must be a boolean"),
+        ({"per_mount": []}, "per_mount must be an object"),
+        ({"per_mount": {"/mnt/x": {"nope": 1}}}, "unknown per_mount keys"),
+        ({"per_mount": {"": {}}}, "non-empty mountpoints"),
+        ({"per_mount": {1: {}}}, "non-empty mountpoints"),
+        ({"per_mount": {"/mnt/x": []}}, "must be an object"),
+        (
+            {"per_mount": {"/mnt/x": {"action": "drop"}}},
+            "must be notify or pause",
+        ),
+        ({"per_mount": {"/mnt/x": {"min_free_gb": -2}}}, "must be >= 0"),
+    ],
+)
+def test_validate_guard_config_rejects_invalid_values(payload, message):
+    with pytest.raises(ValueError, match=message):
+        validate_guard_config(payload)
+
+
+def test_settings_from_config_tolerates_bad_per_mount_shape():
+    default, per_mount = settings_from_config({"per_mount": ["bad"]})
+
+    assert per_mount == {}
+    assert default.min_free_bytes == 10 * GIB
+
+
+def test_settings_from_config_falls_back_for_non_finite_values():
+    default, _ = settings_from_config(
+        {
+            "default_min_free_gb": float("inf"),
+            "resume_margin_gb": float("nan"),
+        }
+    )
+
+    assert default.min_free_bytes == 10 * GIB
+    assert default.resume_margin_bytes == 5 * GIB
