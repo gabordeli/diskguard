@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "DiskGuard"
+description = "Multi-filesystem free-space awareness and guard for Deluge 2.x"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+authors = [{ name = "Gabor Deli", email = "gabor.deli@gmail.com" }]
+maintainers = [{ name = "Gabor Deli", email = "gabor.deli@gmail.com" }]
+keywords = ["deluge", "torrent", "storage", "disk", "plugin"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Twisted",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = ["Twisted>=22.4"]
+dynamic = ["version"]
+
+[project.entry-points."deluge.plugin.core"]
+DiskGuard = "diskguard:CorePlugin"
+
+[tool.setuptools]
+packages = ["diskguard"]
+
+[tool.setuptools.dynamic]
+version = { attr = "diskguard.version.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = [".ci-venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

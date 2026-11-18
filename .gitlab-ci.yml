@@ -1,0 +1,61 @@
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+.python_setup: &python_setup
+  - python3 -m venv .ci-venv
+  - .ci-venv/bin/pip install -q --upgrade pip
+  - .ci-venv/bin/pip install -q pytest pytest-cov ruff build twisted wheel setuptools
+
+.python_job:
+  cache:
+    key: "$CI_COMMIT_REF_SLUG"
+    paths:
+      - .ci-venv/
+
+lint:
+  stage: lint
+  extends: .python_job
+  before_script: *python_setup
+  script:
+    - .ci-venv/bin/ruff check .
+
+test:
+  stage: test
+  extends: .python_job
+  before_script: *python_setup
+  script:
+    - .ci-venv/bin/pytest -q --cov=diskguard --cov-fail-under=80 --cov-report=xml:coverage.xml --cov-report=term
+  coverage: '/TOTAL\s+\d+\s+\d+\s+(\d+)%/'
+  artifacts:
+    paths:
+      - coverage.xml
+    expire_in: 1 week
+
+# The real Deluge API gate. 2.0.3 is py3.9; 2.1.1/2.2.0 are py3.11.
+deluge-compat:
+  stage: test
+  parallel:
+    matrix:
+      - DELUGE_VERSION: ["2.0.3"]
+        PY_IMAGE: ["python:3.9-slim"]
+      - DELUGE_VERSION: ["2.1.1", "2.2.0"]
+        PY_IMAGE: ["python:3.11-slim"]
+  script:
+    - docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -e DISKGUARD_REAL_DELUGE=1 -e DELUGE_VERSION="$DELUGE_VERSION" -v "$PWD:/work" -w /work "$PY_IMAGE" bash -lc 'pip install -q "deluge==$DELUGE_VERSION" libtorrent pytest twisted && python -m pytest -q -p no:cacheprovider tests'
+
+build:
+  stage: build
+  extends: .python_job
+  before_script: *python_setup
+  script:
+    - .ci-venv/bin/python -m build
+    - .ci-venv/bin/python setup.py bdist_egg
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
