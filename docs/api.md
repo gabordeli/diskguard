@@ -35,6 +35,12 @@ Read-only. Returns the per-filesystem view.
 - `unknown[]` lists paths that could not be mapped or statted.
 - `used_pct` is a 0..1 fraction, rounded to 4 decimals.
 
+The canonical payload fixture is
+[`tests/fixtures/storage_payload.json`](../tests/fixtures/storage_payload.json).
+It is asserted against `build_disks()` in the unit tests, so `webui2`
+endpoint tests can load it as a mock `GET /api/storage` response without
+drifting from the backend contract.
+
 ## `GET /api/storage/guard`
 
 Returns the guard config and the current transition state.

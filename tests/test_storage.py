@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from diskguard.storage import (
@@ -13,6 +16,21 @@ from diskguard.storage import (
     parse_mounts,
     real_mounts,
 )
+
+FIXTURE = Path(__file__).parent / "fixtures" / "storage_payload.json"
+PAYLOAD_FIELDS = [
+    "mount",
+    "fs",
+    "total",
+    "free",
+    "used",
+    "used_pct",
+    "paths",
+    "torrents",
+    "labels",
+    "deluge",
+    "low",
+]
 
 
 class FakeTorrent:
@@ -561,3 +579,119 @@ def test_collect_paths_ignores_empty_paths():
     )
 
     assert collect_paths(core) == []
+
+
+def _fixture_payload():
+    mounts = [
+        Mount("/dev/sda1", "/", "ext4"),
+        Mount("/dev/sdb1", "/mnt/usbhdd2", "ext4"),
+        Mount("/dev/sdc1", "/mnt/backup", "ext4"),
+    ]
+    uses = [
+        PathUse("/mnt/usbhdd2/downloads", "t1", "film", active=True),
+        PathUse("/mnt/missing"),
+    ]
+    stats = {
+        "/": DiskStat(500, 400, 100),
+        "/mnt/usbhdd2": DiskStat(1000, 100, 900),
+        "/mnt/backup": DiskStat(2000, 1500, 500),
+    }
+    devs = {"/": 1, "/mnt/usbhdd2/downloads": 2, "/mnt/backup": 3}
+    return build_disks(
+        uses,
+        mounts,
+        include_all=True,
+        thresholds={"/mnt/usbhdd2": 200},
+        stat_fn=stats.get,
+        dev_fn=devs.get,
+    )
+
+
+def test_storage_payload_matches_fixture():
+    disks, unknown = _fixture_payload()
+    payload = {"disks": disks, "unknown": unknown}
+
+    assert payload == json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+def test_storage_payload_shape_is_stable():
+    first = _fixture_payload()
+    second = _fixture_payload()
+
+    assert first == second
+    disks, _ = first
+    assert list(disks[0]) == PAYLOAD_FIELDS
+
+
+def test_storage_payload_sorts_low_first_then_mount():
+    mounts = [
+        Mount("/dev/sda1", "/mnt/low-a", "ext4"),
+        Mount("/dev/sdb1", "/mnt/ok", "ext4"),
+        Mount("/dev/sdc1", "/mnt/low-b", "ext4"),
+    ]
+    uses = [
+        PathUse("/mnt/low-a/data", "t1"),
+        PathUse("/mnt/ok/data", "t2"),
+        PathUse("/mnt/low-b/data", "t3"),
+    ]
+    stats = {
+        "/mnt/low-a": DiskStat(100, 5, 95),
+        "/mnt/ok": DiskStat(100, 50, 50),
+        "/mnt/low-b": DiskStat(100, 5, 95),
+    }
+    devs = {
+        "/mnt/low-a/data": 1,
+        "/mnt/ok/data": 2,
+        "/mnt/low-b/data": 3,
+    }
+
+    disks, unknown = build_disks(
+        uses,
+        mounts,
+        include_all=False,
+        thresholds={"/mnt/low-a": 10, "/mnt/low-b": 10},
+        stat_fn=stats.get,
+        dev_fn=devs.get,
+    )
+
+    assert unknown == []
+    assert [(disk["mount"], disk["low"]) for disk in disks] == [
+        ("/mnt/low-a", True),
+        ("/mnt/low-b", True),
+        ("/mnt/ok", False),
+    ]
+
+
+def test_used_pct_is_clamped_and_rounded():
+    assert DiskStat(0, 0, 0).used_pct == 0.0
+    assert DiskStat(100, 0, 150).used_pct == 1.0
+    assert DiskStat(100, 0, -5).used_pct == 0.0
+
+    disks, _ = build_disks(
+        [PathUse("/data")],
+        [Mount("/dev/sda1", "/data", "ext4")],
+        include_all=False,
+        stat_fn=lambda path: DiskStat(3, 0, 2),
+        dev_fn=lambda path: 1,
+    )
+
+    assert disks[0]["used_pct"] == 0.6667
+
+
+def test_unknown_paths_are_sorted_and_deduplicated():
+    mounts = [Mount("/dev/sda1", "/", "ext4")]
+
+    disks, unknown = build_disks(
+        [
+            PathUse("/missing-b"),
+            PathUse("/missing-b"),
+            PathUse("/missing-a"),
+        ],
+        mounts,
+        include_all=False,
+        stat_fn=lambda path: DiskStat(100, 50, 50),
+        dev_fn=lambda path: None,
+    )
+
+    assert disks == []
+    assert unknown == ["/missing-a", "/missing-b"]

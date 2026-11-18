@@ -1,0 +1,44 @@
+{
+  "disks": [
+    {
+      "mount": "/mnt/usbhdd2",
+      "fs": "ext4",
+      "total": 1000,
+      "free": 100,
+      "used": 900,
+      "used_pct": 0.9,
+      "paths": ["/mnt/usbhdd2/downloads"],
+      "torrents": 1,
+      "labels": ["film"],
+      "deluge": true,
+      "low": true
+    },
+    {
+      "mount": "/",
+      "fs": "ext4",
+      "total": 500,
+      "free": 400,
+      "used": 100,
+      "used_pct": 0.2,
+      "paths": [],
+      "torrents": 0,
+      "labels": [],
+      "deluge": false,
+      "low": false
+    },
+    {
+      "mount": "/mnt/backup",
+      "fs": "ext4",
+      "total": 2000,
+      "free": 1500,
+      "used": 500,
+      "used_pct": 0.25,
+      "paths": [],
+      "torrents": 0,
+      "labels": [],
+      "deluge": false,
+      "low": false
+    }
+  ],
+  "unknown": ["/mnt/missing"]
+}
