@@ -100,6 +100,13 @@ Returns the in-memory transition state:
 `paused_torrents` contains only torrents paused by the guard; a manual user
 pause is never undone automatically.
 
+## Events
+
+`LowTargetEvent(torrent_id, path, mount)` is emitted when a torrent path
+first appears on a low disk after the initial guard snapshot. The GTK UI
+registers it with `client.register_event_handler('LowTargetEvent', ...)` and
+shows one non-blocking warning per `(torrent_id, path, mount)`.
+
 ## Auth
 
 The GTK UI uses the existing Deluge RPC session. DiskGuard does not add a

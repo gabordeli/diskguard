@@ -7,7 +7,7 @@ from twisted.internet import defer
 
 from diskguard import CorePlugin
 from diskguard import core as core_module
-from diskguard.core import Core
+from diskguard.core import Core, LowTargetEvent
 from diskguard.storage import Mount, PathUse
 
 pytestmark = pytest.mark.skipif(
@@ -443,3 +443,60 @@ def test_apply_events_notify_action_does_not_pause(monkeypatch):
 
     assert fake.paused == []
     assert core._state.paused_torrents == set()
+
+
+class FakeEventManager:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, event):
+        self.events.append(event)
+
+
+def test_emit_low_targets_only_for_new_paths(monkeypatch):
+    core = _enabled_core(monkeypatch)
+    manager = FakeEventManager()
+    monkeypatch.setattr(core, "_event_manager", lambda: manager)
+    mounts = [
+        Mount("/dev/sda1", "/mnt/low", "ext4"),
+        Mount("/dev/sdb1", "/mnt/ok", "ext4"),
+    ]
+    aliases = {"/mnt/low": {"/mnt/low"}, "/mnt/ok": {"/mnt/ok"}}
+    disks = [
+        {"mount": "/mnt/low", "low": True, "deluge": True},
+        {"mount": "/mnt/ok", "low": False, "deluge": True},
+    ]
+
+    core._emit_low_targets(
+        [PathUse("/mnt/low/old", "t1")], mounts, aliases, disks
+    )
+    assert manager.events == []
+
+    core._emit_low_targets(
+        [PathUse("/mnt/low/new", "t1")], mounts, aliases, disks
+    )
+    assert len(manager.events) == 1
+    assert isinstance(manager.events[0], LowTargetEvent)
+    assert manager.events[0]._args == ["t1", "/mnt/low/new", "/mnt/low"]
+
+    core._emit_low_targets(
+        [PathUse("/mnt/ok/new", "t1")], mounts, aliases, disks
+    )
+    assert len(manager.events) == 1
+
+
+def test_emit_low_targets_new_torrent_on_low_disk(monkeypatch):
+    core = _enabled_core(monkeypatch)
+    manager = FakeEventManager()
+    monkeypatch.setattr(core, "_event_manager", lambda: manager)
+    mounts = [Mount("/dev/sda1", "/mnt/low", "ext4")]
+    aliases = {"/mnt/low": {"/mnt/low"}}
+    disks = [{"mount": "/mnt/low", "low": True, "deluge": True}]
+
+    core._emit_low_targets([], mounts, aliases, disks)
+    core._emit_low_targets(
+        [PathUse("/mnt/low/a", "t2")], mounts, aliases, disks
+    )
+
+    assert len(manager.events) == 1
+    assert manager.events[0]._args == ["t2", "/mnt/low/a", "/mnt/low"]

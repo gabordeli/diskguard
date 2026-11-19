@@ -107,6 +107,7 @@ class GtkUI(Gtk3PluginBase):
         self._mount_min = None
         self._mount_margin = None
         self._mount_action = None
+        self._warned_targets = set()
 
     def enable(self):
         if self._page is not None:
@@ -120,6 +121,10 @@ class GtkUI(Gtk3PluginBase):
         from gi.repository import Gtk
 
         self._client = client
+        self._warned_targets.clear()
+        client.register_event_handler(
+            "LowTargetEvent", self._on_low_target_event
+        )
         page = self._build_page(Gtk)
         component.get("Preferences").add_page(PAGE_NAME, page)
         self._page = page
@@ -134,12 +139,38 @@ class GtkUI(Gtk3PluginBase):
         try:
             component.get("Preferences").remove_page(PAGE_NAME)
         finally:
+            if self._client is not None:
+                try:
+                    self._client.deregister_event_handler(
+                        "LowTargetEvent", self._on_low_target_event
+                    )
+                except Exception:
+                    log.exception("DiskGuard: event handler removal failed")
             self._page = None
             self._client = None
         log.info("DiskGuard GTK page disabled")
 
     def update(self):
         pass
+
+    def _on_low_target_event(self, torrent_id, path, mount):
+        key = (torrent_id, path, mount)
+        if key in self._warned_targets:
+            return
+        self._warned_targets.add(key)
+        self._set_status(f"Low target: {mount} ({path})")
+        if self._gtk is None:
+            return
+        dialog = self._gtk.MessageDialog(
+            message_type=self._gtk.MessageType.WARNING,
+            buttons=self._gtk.ButtonsType.OK,
+            text=f"Torrent {torrent_id} targets a low disk",
+        )
+        dialog.format_secondary_text(f"{path} on {mount}")
+        dialog.connect(
+            "response", lambda widget, response: widget.destroy()
+        )
+        dialog.show()
 
     def _build_page(self, Gtk):
         self._gtk = Gtk

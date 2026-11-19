@@ -7,6 +7,7 @@ from pathlib import Path
 
 from deluge.configmanager import ConfigManager
 from deluge.core.rpcserver import export
+from deluge.event import DelugeEvent
 from deluge.plugins.pluginbase import CorePluginBase
 from twisted.internet import task, threads
 
@@ -16,6 +17,15 @@ log = logging.getLogger(__name__)
 
 CONFIG_FILE = "diskguard.conf"
 GUARD_POLL_SECONDS = 30
+
+
+class LowTargetEvent(DelugeEvent):
+    """A torrent path appeared on a low disk."""
+
+    def __init__(self, torrent_id, path, mount):
+        self._args = [torrent_id, path, mount]
+
+
 DEFAULT_PREFS = {
     "enabled": True,
     "default_min_free_gb": 10.0,
@@ -32,10 +42,12 @@ class Core(CorePluginBase):
         self._loop = None
         self._polling = False
         self._cache = None
+        self._torrent_paths = None
 
     def enable(self):
         self.config = ConfigManager(CONFIG_FILE, defaults=DEFAULT_PREFS)
         self._cache = None
+        self._torrent_paths = None
         self._start_guard()
         log.info("DiskGuard enabled")
 
@@ -141,6 +153,7 @@ class Core(CorePluginBase):
                     event["free"] / guard.GIB,
                 )
         self._apply_events(events, uses, mounts, aliases)
+        self._emit_low_targets(uses, mounts, aliases, disks)
         return payload
 
     def _apply_events(self, events, uses, mounts, aliases=None):
@@ -236,6 +249,55 @@ class Core(CorePluginBase):
             if status and status.get("state") in storage.ACTIVE_STATES:
                 active.add(torrent_id)
         return active
+
+    def _emit_low_targets(self, uses, mounts, aliases, disks):
+        if not self._enabled():
+            return
+        current: dict[str, set[str]] = {}
+        for use in uses:
+            if use.torrent_id and use.path:
+                current.setdefault(use.torrent_id, set()).add(use.path)
+        previous = self._torrent_paths
+        self._torrent_paths = current
+        if previous is None:
+            return
+        try:
+            manager = self._event_manager()
+        except KeyError:
+            return
+        for torrent_id, paths in current.items():
+            for path in sorted(paths - previous.get(torrent_id, set())):
+                disk = self._low_disk_for_path(path, mounts, aliases, disks)
+                if disk is None:
+                    continue
+                try:
+                    manager.emit(
+                        LowTargetEvent(torrent_id, path, disk["mount"])
+                    )
+                except Exception:
+                    log.exception(
+                        "DiskGuard: could not emit low-target event for %s",
+                        torrent_id,
+                    )
+
+    def _event_manager(self):
+        from deluge import component
+
+        return component.get("EventManager")
+
+    @staticmethod
+    def _low_disk_for_path(path, mounts, aliases, disks):
+        try:
+            mount = storage.canonical_mount(path, mounts)
+        except Exception:
+            return None
+        if mount is None:
+            return None
+        names = aliases.get(mount.mountpoint, {mount.mountpoint})
+        for disk in disks:
+            if disk.get("mount") in names and disk.get("low"):
+                return disk
+        return None
 
     def mounts(self):
         try:

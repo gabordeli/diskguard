@@ -119,6 +119,12 @@ class FakeGtk:
         VERTICAL = 1
         HORIZONTAL = 2
 
+    class MessageType:
+        WARNING = 1
+
+    class ButtonsType:
+        OK = 1
+
     Box = FakeWidget
     Label = FakeLabel
     Button = FakeButton
@@ -126,6 +132,33 @@ class FakeGtk:
     SpinButton = FakeSpinButton
     ComboBoxText = FakeComboBoxText
     Frame = FakeWidget
+    MessageDialog = None
+
+
+class FakeMessageDialog:
+    instances = []
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.secondary = None
+        self.shown = False
+        self.destroyed = False
+        FakeMessageDialog.instances.append(self)
+
+    def format_secondary_text(self, text):
+        self.secondary = text
+
+    def connect(self, signal, callback):
+        self.callback = callback
+
+    def show(self):
+        self.shown = True
+
+    def destroy(self):
+        self.destroyed = True
+
+
+FakeGtk.MessageDialog = FakeMessageDialog
 
 
 class FakePreferences:
@@ -252,9 +285,25 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
 
     monkeypatch.setattr(component, "get", lambda name: preferences)
     monkeypatch.setattr(client, "diskguard", fake_core, raising=False)
+    events = {}
+
+    def register(name, handler):
+        events.setdefault(name, []).append(handler)
+
+    def deregister(name, handler):
+        events[name].remove(handler)
+
+    monkeypatch.setattr(
+        client, "register_event_handler", register, raising=False
+    )
+    monkeypatch.setattr(
+        client, "deregister_event_handler", deregister, raising=False
+    )
+    FakeMessageDialog.instances = []
 
     gtk_ui.enable()
     assert preferences.pages["DiskGuard"] is gtk_ui._page
+    assert len(events["LowTargetEvent"]) == 1
     rows = gtk_ui._rows_box.get_children()
     assert len(rows) == 4
     assert rows[-1].text.startswith("Unknown:")
@@ -264,6 +313,15 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     gtk_ui._mount_combo.set_active(2)
     gtk_ui._on_mount_changed()
     assert gtk_ui._mount_min.get_value() == 20.0
+
+    gtk_ui._on_low_target_event(
+        "t1", "/mnt/usbhdd2/downloads", "/mnt/usbhdd2"
+    )
+    gtk_ui._on_low_target_event(
+        "t1", "/mnt/usbhdd2/downloads", "/mnt/usbhdd2"
+    )
+    assert len(FakeMessageDialog.instances) == 1
+    assert FakeMessageDialog.instances[0].shown is True
 
     gtk_ui.enable()
     assert list(preferences.pages) == ["DiskGuard"]
@@ -291,4 +349,5 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
 
     gtk_ui.disable()
     assert preferences.pages == {}
+    assert events["LowTargetEvent"] == []
     gtk_ui.disable()
