@@ -7,7 +7,7 @@ from twisted.internet import defer
 
 from diskguard import CorePlugin
 from diskguard import core as core_module
-from diskguard.core import Core, LowTargetEvent
+from diskguard.core import Core, GuardEvent, LowTargetEvent
 from diskguard.storage import Mount, PathUse
 
 pytestmark = pytest.mark.skipif(
@@ -27,6 +27,7 @@ def test_core_rpc_methods_are_exported():
         "get_guard_config",
         "set_guard_config",
         "get_guard_state",
+        "get_last_events",
     ):
         assert getattr(Core, name)._rpcserver_export is True
 
@@ -513,3 +514,45 @@ def test_emit_low_targets_new_torrent_on_low_disk(monkeypatch):
 
     assert len(manager.events) == 1
     assert manager.events[0]._args == ["t2", "/mnt/low/a", "/mnt/low"]
+
+
+def test_apply_payload_records_guard_event_and_sink(monkeypatch):
+    core = _enabled_core(monkeypatch)
+    monkeypatch.setattr(core, "_apply_events", lambda *args: None)
+    manager = FakeEventManager()
+    monkeypatch.setattr(core, "_event_manager", lambda: manager)
+    seen = []
+    core.add_event_sink(seen.append)
+    mounts = [Mount("/dev/sda1", "/mnt/x", "ext4")]
+    aliases = {"/mnt/x": {"/mnt/x"}}
+    uses = [PathUse("/mnt/x/a", "t1", active=True)]
+    disks = [{"mount": "/mnt/x", "free": 1, "deluge": True}]
+    expected = {
+        "mount": "/mnt/x",
+        "event": "low",
+        "free": 1,
+        "min_free": 10 * 1024**3,
+        "action": "pause",
+        "torrents": 1,
+    }
+
+    core._apply_payload((uses, mounts, aliases, disks, []))
+
+    assert core.get_last_events() == [expected]
+    assert seen == [expected]
+    assert len(manager.events) == 1
+    assert isinstance(manager.events[0], GuardEvent)
+    assert manager.events[0]._args == [
+        "/mnt/x",
+        "low",
+        1,
+        10 * 1024**3,
+        "pause",
+        1,
+    ]
+
+    core._apply_payload((uses, mounts, aliases, disks, []))
+
+    assert core.get_last_events() == [expected]
+    assert seen == [expected]
+    assert len(manager.events) == 1

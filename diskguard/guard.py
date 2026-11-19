@@ -181,7 +181,15 @@ def evaluate(
             settings.min_free_bytes + settings.resume_margin_bytes
         ):
             state.low_mounts.remove(mount)
-            events.append({"mount": mount, "event": "ok", "free": free})
+            events.append(
+                {
+                    "mount": mount,
+                    "event": "ok",
+                    "free": free,
+                    "min_free": settings.min_free_bytes,
+                    "action": settings.action,
+                }
+            )
     return events
 
 

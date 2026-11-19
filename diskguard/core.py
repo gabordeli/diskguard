@@ -26,6 +26,13 @@ class LowTargetEvent(DelugeEvent):
         self._args = [torrent_id, path, mount]
 
 
+class GuardEvent(DelugeEvent):
+    """A low/ok guard transition for one mount."""
+
+    def __init__(self, mount, event, free, min_free, action, torrents):
+        self._args = [mount, event, free, min_free, action, torrents]
+
+
 DEFAULT_PREFS = {
     "enabled": True,
     "default_min_free_gb": 10.0,
@@ -43,6 +50,8 @@ class Core(CorePluginBase):
         self._polling = False
         self._cache = None
         self._torrent_paths = None
+        self._last_events = []
+        self._sinks = []
 
     def enable(self):
         self.config = ConfigManager(CONFIG_FILE, defaults=DEFAULT_PREFS)
@@ -145,6 +154,11 @@ class Core(CorePluginBase):
         self._cache = {"disks": disks, "unknown": unknown}
         default, per_mount = guard.settings_from_config(self.config or {})
         events = guard.evaluate(disks, default, per_mount, self._state)
+        for event in events:
+            event["torrents"] = self._event_torrent_count(
+                event, uses, mounts, aliases
+            )
+        self._record_events(events)
         for event in events:
             if event["event"] == "low":
                 log.warning(
@@ -285,6 +299,52 @@ class Core(CorePluginBase):
                         "DiskGuard: could not emit low-target event for %s",
                         torrent_id,
                     )
+
+    def add_event_sink(self, sink):
+        if sink not in self._sinks:
+            self._sinks.append(sink)
+
+    def remove_event_sink(self, sink):
+        if sink in self._sinks:
+            self._sinks.remove(sink)
+
+    @export
+    def get_last_events(self):
+        return [dict(event) for event in self._last_events]
+
+    def _event_torrent_count(self, event, uses, mounts, aliases):
+        mount = event["mount"]
+        if event["event"] == "low":
+            ids = guard.torrents_to_pause(
+                uses,
+                mounts,
+                mount,
+                self._state.paused_torrents,
+                aliases.get(mount, {mount}),
+            )
+            return len(ids)
+        return len(self._state.paused_by_mount.get(mount, set()))
+
+    def _record_events(self, events):
+        if not events:
+            return
+        self._last_events.extend(events)
+        self._last_events = self._last_events[-50:]
+        for event in events:
+            snapshot = dict(event)
+            for sink in list(self._sinks):
+                try:
+                    sink(dict(snapshot))
+                except Exception:
+                    log.exception("DiskGuard: event sink failed")
+            try:
+                manager = self._event_manager()
+            except KeyError:
+                continue
+            try:
+                manager.emit(GuardEvent(**snapshot))
+            except Exception:
+                log.exception("DiskGuard: could not emit guard event")
 
     def _event_manager(self):
         from deluge import component

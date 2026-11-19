@@ -133,6 +133,11 @@ previous cached payload, resets the in-flight flag and the next tick retries.
 Only disks with `deluge: true` are evaluated, so backup disks are visible but
 not guarded.
 
+Each low/ok transition records one event with `mount`, `event`, `free`,
+`min_free`, `action` and the affected `torrents` count. The core emits a
+Deluge `GuardEvent` and calls optional in-process sinks; repeated polls at the
+same state do not duplicate it. There is no HTTP or second auth layer.
+
 ## Security
 
 - Read-only storage payload; no paths are mutated.

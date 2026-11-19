@@ -58,6 +58,13 @@ def test_evaluate_hysteresis():
         state,
     )
     assert [event["event"] for event in ok] == ["ok"]
+    assert ok[0] == {
+        "mount": "/mnt/usbhdd2",
+        "event": "ok",
+        "free": 15 * GIB,
+        "min_free": 10 * GIB,
+        "action": "pause",
+    }
     assert state.low_mounts == set()
 
 

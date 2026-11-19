@@ -101,6 +101,29 @@ Returns the in-memory transition state:
 `paused_torrents` contains only torrents paused by the guard; a manual user
 pause is never undone automatically.
 
+## `get_last_events()`
+
+Returns the most recent guard transition events (at most 50):
+
+```json
+[
+  {
+    "mount": "/mnt/usbhdd2",
+    "event": "low",
+    "free": 123456789,
+    "min_free": 10737418240,
+    "action": "pause",
+    "torrents": 3
+  }
+]
+```
+
+`torrents` is the affected torrent count, never a list of IDs. Events are
+recorded only on a low/ok transition; a repeated poll at the same state adds
+nothing. The optional in-process sink hook (`add_event_sink`/`remove_event_sink`)
+receives the same dict and works without any notifier. DiskGuard also emits a
+Deluge `GuardEvent` with the same six fields.
+
 ## Events
 
 `LowTargetEvent(torrent_id, path, mount)` is emitted when a torrent path
