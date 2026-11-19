@@ -7,10 +7,10 @@ variables:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 .python_setup: &python_setup
+  - rm -rf .ci-venv
   - python3 -m venv .ci-venv
   - .ci-venv/bin/pip install -q --upgrade pip
   - .ci-venv/bin/pip install -q pytest pytest-cov ruff build twisted wheel setuptools
-  - rm -f .ci-venv/lib/python*/site-packages/__editable__.diskguard-*.pth
   - .ci-venv/bin/pip install -q -e .
 
 .python_job:
