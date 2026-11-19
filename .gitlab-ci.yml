@@ -37,6 +37,14 @@ test:
       - coverage.xml
     expire_in: 1 week
 
+# Headless GTK entry-point import with the Deluge/GTK stubs.
+gtk-import:
+  stage: test
+  extends: .python_job
+  before_script: *python_setup
+  script:
+    - PYTHONPATH=tests/stubs .ci-venv/bin/python -c "from diskguard import GtkUIPlugin; p = GtkUIPlugin('DiskGuard'); assert type(p.plugin).__name__ == 'GtkUI'; print('GTK import ok')"
+
 # The real Deluge API gate. 2.0.3 is py3.9; 2.1.1/2.2.0 are py3.11.
 deluge-compat:
   stage: test
@@ -56,6 +64,7 @@ build:
   script:
     - .ci-venv/bin/python -m build
     - .ci-venv/bin/python setup.py bdist_egg
+    - .ci-venv/bin/python -c "import glob, zipfile; p = sorted(glob.glob('dist/DiskGuard-*.egg'))[-1]; t = zipfile.ZipFile(p).read('EGG-INFO/entry_points.txt').decode(); assert 'deluge.plugin.core' in t and 'deluge.plugin.gtk3ui' in t; print('entry points ok')"
   artifacts:
     paths:
       - dist/

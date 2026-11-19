@@ -77,11 +77,34 @@ Open `deluge-gtk` → Preferences → DiskGuard (or the DiskGuard Storage
 page/dialog). The view should list every real mount and mark the Deluge-used
 ones with `deluge: true`. The guard state and thresholds can be edited there.
 
+## Release smoke checklist
+
+1. Build the egg and install it on the daemon and the GTK client.
+2. Enable `DiskGuard`, restart `deluged`/`deluge-gtk`, open Preferences →
+   DiskGuard; the disk list and defaults must appear.
+3. Set a high threshold on a test mount, add a torrent there and confirm the
+   guard pauses only the affected active torrents; restore the threshold.
+4. Resume the torrent manually while the disk is still low; the guard must not
+   undo a manual pause on the next `ok` transition.
+5. Set the threshold low again and confirm a `LowTargetEvent` warning appears
+   once for a new/moved torrent path.
+
+The guard state is in memory only in 0.1.0; no data is moved or deleted.
+
+## GTK smoke without a daemon
+
+With Deluge/GTK installed, build the real page under Xvfb:
+
+```bash
+PYTHONPATH=. xvfb-run -a python3 scripts/gtk_smoke.py
+```
+
+It uses the storage fixture and a fake RPC client, and checks that the
+Preferences page can be created and removed. It does not connect to `deluged`.
+
 ## Rollback
 
 1. Disable `DiskGuard` in the GTK Plugins page and in `core.conf`.
 2. Remove the egg from `$DELUGE_CONFIG_DIR/plugins/` on the daemon and the GTK
    client.
 3. Restart `deluged` and `deluge-gtk`.
-
-The guard state is in memory only in M1/M2; no data is moved or deleted.
