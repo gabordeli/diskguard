@@ -1,10 +1,11 @@
 # Decisions
 
-## ADR-001: Headless plugin, UI in webui2
+## ADR-001: Standalone core + GTK UI
 
-DiskGuard runs as a Deluge core plugin and exposes Python functions/resources;
-`webui2` mounts the HTTP endpoints and owns auth, SSE and Web Push. A second
-HTTP server would duplicate those concerns for no user benefit.
+DiskGuard ships as one egg with a Deluge core plugin and a GTK UI plugin. The
+core runs in `deluged`; the GTK UI runs in `deluge-gtk` and calls exported
+core methods through the existing Deluge RPC session. There is no `webui2`
+dependency, no second HTTP server and no second auth layer.
 
 ## ADR-002: Per-filesystem guard, not a global pause
 
@@ -45,7 +46,8 @@ Thresholds are configured in GB (not percent) because the download use case is
 about absolute headroom for the next file. Resume requires
 `min_free + margin`, so a disk at the threshold does not flap every poll.
 
-## ADR-009: The stock 8112 UI stays untouched
+## ADR-009: Stock Deluge UIs stay untouched
 
-The multi-disk view is a `webui2` feature. Changing `deluge-web` on 8112 would
-expand the compatibility surface and contradict the existing deployment rule.
+DiskGuard adds its own GTK Storage page/dialog. The stock GTK dialogs and the
+8112 `deluge-web` stay untouched; changing them would expand the compatibility
+surface and contradict the existing deployment rule.

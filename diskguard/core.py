@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from deluge.configmanager import ConfigManager
+from deluge.core.rpcserver import export
 from deluge.plugins.pluginbase import CorePluginBase
 from twisted.internet import task, threads
 
@@ -243,6 +244,7 @@ class Core(CorePluginBase):
             return []
         return storage.parse_mounts(text)
 
+    @export
     def get_storage(self):
         if self._cache is not None:
             return self._cache
@@ -254,6 +256,7 @@ class Core(CorePluginBase):
         self._cache = {"disks": disks, "unknown": unknown}
         return self._cache
 
+    @export
     def get_guard_config(self):
         config = self.config or {}
         return {
@@ -265,6 +268,7 @@ class Core(CorePluginBase):
             "per_mount": dict(config.get("per_mount") or {}),
         }
 
+    @export
     def set_guard_config(self, payload):
         clean = guard.validate_guard_config(payload)
         for key, value in clean.items():
@@ -273,6 +277,7 @@ class Core(CorePluginBase):
         self._cache = None
         return self.get_guard_config()
 
+    @export
     def get_guard_state(self):
         return {
             "low_mounts": sorted(self._state.low_mounts),

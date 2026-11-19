@@ -25,6 +25,9 @@ dynamic = ["version"]
 [project.entry-points."deluge.plugin.core"]
 DiskGuard = "diskguard:CorePlugin"
 
+[project.entry-points."deluge.plugin.gtk3ui"]
+DiskGuard = "diskguard:GtkUIPlugin"
+
 [tool.setuptools]
 packages = ["diskguard"]
 

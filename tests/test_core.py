@@ -21,6 +21,16 @@ def test_plugin_entry_point():
     assert plugin.plugin.plugin_name == "DiskGuard"
 
 
+def test_core_rpc_methods_are_exported():
+    for name in (
+        "get_storage",
+        "get_guard_config",
+        "set_guard_config",
+        "get_guard_state",
+    ):
+        assert getattr(Core, name)._rpcserver_export is True
+
+
 def test_enable_sets_defaults():
     core = Core("DiskGuard")
     core.enable()

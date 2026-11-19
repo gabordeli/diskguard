@@ -1,7 +1,8 @@
 # Install
 
-DiskGuard is a Deluge 2.x egg plugin. The mobile UI/API is provided by
-`webui2`; install that separately if you want the Storage sheet.
+DiskGuard is a standalone Deluge 2.x egg plugin: a core plugin for `deluged`
+and a GTK UI plugin for `deluge-gtk`. It does not require `webui2` and does
+not start an HTTP server.
 
 ## Build
 
@@ -15,18 +16,27 @@ python3 -m venv .venv
 
 The egg is written to `dist/DiskGuard-<version>-py3.x.egg`.
 
-## Install on the Deluge host
+## Install
 
-Use the Deluge config/data directory of the `deluged` user; the exact path is
-environment-specific (`$DELUGE_CONFIG_DIR` in deployments):
+Install the egg in the Deluge config/data directory of the `deluged` user. The
+exact path is environment-specific (`$DELUGE_CONFIG_DIR` in deployments):
 
 ```bash
 install -d -m 755 "$DELUGE_CONFIG_DIR/plugins"
 install -m 644 dist/DiskGuard-*.egg "$DELUGE_CONFIG_DIR/plugins/"
 ```
 
-Add `DiskGuard` to `enabled_plugins` in `core.conf`, then restart `deluged`.
-Restarting the daemon is a separate operational step; confirm it on the host.
+For the GTK UI, install the same egg on the machine running `deluge-gtk` (it can
+be the same host or a thin client), in that user's Deluge config directory.
+
+Enable the plugin in Deluge:
+
+- core: `DiskGuard` in `enabled_plugins` of `core.conf` (or the GTK Plugins
+  preferences when connected to the daemon);
+- GTK: enable `DiskGuard` on the GTK Plugins page, then reopen Preferences.
+
+Restarting `deluged` and `deluge-gtk` is a separate operational step; confirm
+it on the host.
 
 ## Config
 
@@ -63,20 +73,15 @@ Validation rules (enforced by `set_guard_config`):
 
 ## Verify
 
-With `webui2` installed:
-
-```bash
-curl -s -H "Authorization: Bearer <token>" \
-  https://<deluge-host>:8113/api/storage
-```
-
-The response should list every real mount and mark the Deluge-used ones with
-`"deluge": true`.
+Open `deluge-gtk` → Preferences → DiskGuard (or the DiskGuard Storage
+page/dialog). The view should list every real mount and mark the Deluge-used
+ones with `deluge: true`. The guard state and thresholds can be edited there.
 
 ## Rollback
 
-1. Remove the egg from `$DELUGE_CONFIG_DIR/plugins/`.
-2. Remove `DiskGuard` from `enabled_plugins` in `core.conf`.
-3. Restart `deluged`.
+1. Disable `DiskGuard` in the GTK Plugins page and in `core.conf`.
+2. Remove the egg from `$DELUGE_CONFIG_DIR/plugins/` on the daemon and the GTK
+   client.
+3. Restart `deluged` and `deluge-gtk`.
 
 The guard state is in memory only in M1/M2; no data is moved or deleted.

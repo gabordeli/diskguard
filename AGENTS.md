@@ -1,15 +1,17 @@
 # AGENTS.md
 
-DiskGuard is a **headless Deluge 2.x core plugin + Python library** for
-multi-filesystem free-space awareness and a per-disk guard. The mobile UI/API
-lives in `webui2`; DiskGuard does not start its own HTTP server.
+DiskGuard is a **standalone Deluge 2.x plugin** (core + GTK UI) for
+multi-filesystem free-space awareness and a per-disk guard. The core runs in
+`deluged`; the GTK UI runs in `deluge-gtk` and talks to it through Deluge RPC.
+There is no `webui2` dependency and no separate HTTP server.
 
 ## Layout
 
-- `diskguard/core.py` – Deluge plugin, config, `get_storage()`
+- `diskguard/core.py` – Deluge core plugin, config, exported RPC methods
 - `diskguard/storage.py` – mount discovery, `statvfs`, path mapping (pure)
 - `diskguard/guard.py` – thresholds, hysteresis, pause selection (pure)
-- `tests/` – pytest; `tests/stubs` for unit tests without Deluge
+- `diskguard/gtkui.py` – GTK UI plugin (Storage page/dialog, warnings)
+- `tests/` – pytest; `tests/stubs` for unit tests without Deluge/GTK
 - `docs/` – design, API, install, decisions
 
 ## Commands
@@ -34,12 +36,17 @@ lives in `webui2`; DiskGuard does not start its own HTTP server.
   torrent the user paused by hand.
 - **No auto-remove:** a full disk with completed data needs a cleanup decision.
 - **Do not duplicate Deluge:** only model what the stock daemon/UI does not.
-  The 8112 `deluge-web` stays untouched.
+  The stock GTK and 8112 `deluge-web` UIs stay untouched; DiskGuard adds its
+  own GTK page/dialog.
+- **Core/GTK split:** the GTK UI calls only exported core methods through
+  `client.diskguard.*`; core methods need `@export`. Keep GTK imports lazy so
+  headless core tests do not need PyGObject.
 - **Deluge 2.x:** every new `deluge.*` import must pass the CI
   `deluge-compat` matrix (2.0.3 / 2.1.1 / 2.2.0); update `tests/stubs` too.
+  GTK imports also need stubs or a separate GTK job.
 - **Secrets/IPs:** no host/IP/token in the repo; docs stay environment-agnostic.
-- **Authz:** endpoints are mounted by `webui2`; every mutating one needs
-  read-only (403) and normal (200) tests there.
+- **RPC auth:** the GTK UI uses the existing Deluge RPC session; DiskGuard does
+  not add a second token/auth layer.
 
 ## Rules
 

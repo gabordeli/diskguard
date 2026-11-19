@@ -1,9 +1,10 @@
 # API
 
-DiskGuard is headless. The endpoints below are mounted by the `webui2` plugin;
-DiskGuard itself does not start an HTTP server.
+DiskGuard is standalone: the GTK UI calls exported core methods through
+Deluge RPC (`client.diskguard.*`). The methods return Twisted Deferreds; there
+are no HTTP endpoints. The core plugin methods are decorated with `@export`.
 
-## `GET /api/storage`
+## `get_storage()`
 
 Read-only. Returns the per-filesystem view.
 
@@ -37,13 +38,12 @@ Read-only. Returns the per-filesystem view.
 
 The canonical payload fixture is
 [`tests/fixtures/storage_payload.json`](../tests/fixtures/storage_payload.json).
-It is asserted against `build_disks()` in the unit tests, so `webui2`
-endpoint tests can load it as a mock `GET /api/storage` response without
-drifting from the backend contract.
+It is asserted against `build_disks()` in the unit tests, so the GTK UI and
+tests can use it without drifting from the backend contract.
 
-## `GET /api/storage/guard`
+## `get_guard_config()`
 
-Returns the guard config and the current transition state.
+Returns the guard config:
 
 ```json
 {
@@ -52,15 +52,13 @@ Returns the guard config and the current transition state.
   "resume_margin_gb": 5.0,
   "per_mount": {
     "/mnt/usbhdd2": {"min_free_gb": 20, "action": "pause"}
-  },
-  "low_mounts": ["/mnt/usbhdd2"],
-  "paused_torrents": ["<torrent-id>"]
+  }
 }
 ```
 
-## `PATCH /api/storage/guard`
+## `set_guard_config(payload)`
 
-Normal auth level. Accepts any subset of:
+Accepts any subset of:
 
 ```json
 {
@@ -82,19 +80,32 @@ Validation:
 - `enabled` must be a boolean;
 - numbers must be finite and `>= 0`;
 - `action` is `pause` or `notify`;
-- unknown top-level or per-mount keys are rejected with `400`;
-- the response is the same shape as `GET /api/storage/guard`.
+- unknown top-level or per-mount keys are rejected;
+- the response is the same shape as `get_guard_config()`.
 
-## Authz
+Invalid input raises `ValueError`, which Deluge returns as an RPC error. The
+GTK UI maps it to a dialog/message.
 
-- `GET /api/storage` and `GET /api/storage/guard`: read-only level.
-- `PATCH /api/storage/guard`: normal level; read-only gets `403`.
-- `webui2` owns the token/session handling; DiskGuard does not log it.
+## `get_guard_state()`
+
+Returns the in-memory transition state:
+
+```json
+{
+  "low_mounts": ["/mnt/usbhdd2"],
+  "paused_torrents": ["<torrent-id>"]
+}
+```
+
+`paused_torrents` contains only torrents paused by the guard; a manual user
+pause is never undone automatically.
+
+## Auth
+
+The GTK UI uses the existing Deluge RPC session. DiskGuard does not add a
+token, HTTP endpoint or second auth layer.
 
 ## Errors
 
-- `400`: invalid config or payload.
-- `403`: read-only token on a mutation.
-- `200`: successful read/update.
-
-The payload is stable; new fields are additive.
+- `ValueError`: invalid guard config (RPC error).
+- Missing torrents/paths: reported in `unknown[]` or skipped, not raised.

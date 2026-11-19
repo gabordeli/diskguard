@@ -7,7 +7,7 @@ location* only. On a server with several HDDs that hides every other filesystem,
 and a full disk can silently stop downloads. DiskGuard models each filesystem
 separately and can pause only the torrents that are writing to the full disk.
 
-**Status:** bootstrap / M1 (storage model). No release yet.
+**Status:** M1–M2 core (storage + guard), M3 GTK UI in progress. No release yet.
 
 ## Why
 
@@ -19,11 +19,13 @@ shows one value, for one path. DiskGuard fills that gap:
 - maps the session default, torrent paths, and session/torrent/Label
   `move_completed_path` targets to filesystems;
 - exposes a stable `disks[]` payload;
-- runs a per-filesystem guard with hysteresis and notifications.
+- runs a per-filesystem guard with hysteresis and notifications;
+- ships a GTK UI page/dialog for the storage view and guard settings.
 
-It is **headless**: the mobile UI/API lives in the existing `webui2` plugin.
-DiskGuard does not start another HTTP server, so it does not duplicate auth,
-SSE or Web Push. The stock `deluge-web` on 8112 stays untouched.
+It is **standalone**: one egg contains the core plugin and the GTK UI plugin.
+The GTK client talks to the daemon through Deluge RPC; there is no `webui2`
+dependency and no second HTTP server. The stock `deluge-web` on 8112 stays
+untouched.
 
 ## Data model
 
@@ -69,10 +71,11 @@ appear twice. The mount label is the longest matching mountpoint from
 
 ```text
 diskguard/          Deluge core plugin + pure storage/guard logic
-  core.py           enable/disable, config, get_storage()
+  core.py           enable/disable, config, exported RPC methods
   storage.py        mount discovery, statvfs, path mapping
   guard.py          thresholds, hysteresis, pause selection
-tests/              pytest; Deluge stubs for unit tests
+  gtkui.py          GTK UI plugin (storage page/dialog, warnings)
+tests/              pytest; Deluge/GTK stubs for unit tests
 docs/               design, API, install, decisions
 ```
 
@@ -90,7 +93,7 @@ The normal unit-test run uses `tests/stubs`; the CI compatibility job sets
 ## Documentation
 
 - [docs/design.md](docs/design.md) – model and guard semantics
-- [docs/api.md](docs/api.md) – payload and webui2 endpoints
+- [docs/api.md](docs/api.md) – payload and core RPC methods used by the GTK UI
 - [docs/install.md](docs/install.md) – egg install, config, rollback
 - [docs/decisions.md](docs/decisions.md) – decisions and constraints
 - [AGENTS.md](AGENTS.md) – working notes for agents

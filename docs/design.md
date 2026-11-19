@@ -21,11 +21,13 @@ A full disk therefore shows up late, as a write error or a stalled torrent.
   - session and per-torrent `move_completed_path` when `move_completed` is on;
   - Label `move_completed_path` when both `apply_move_completed` and
     `move_completed` are on.
-- Expose a stable `disks[]` payload for the mobile UI.
+- Expose a stable `disks[]` payload for the GTK UI.
 - Guard per filesystem: pause only the torrents writing to a low disk;
   resume them after hysteresis.
 - Keep the reactor responsive.
-- Do not duplicate auth, SSE or Web Push: the UI/API lives in `webui2`.
+- Ship a GTK UI page/dialog for the storage view, guard settings and
+  free-space warnings.
+- Use the existing Deluge RPC session; do not add a second auth or HTTP layer.
 
 ## Non-goals
 
@@ -38,21 +40,20 @@ A full disk therefore shows up late, as a write error or a stalled torrent.
 ## Architecture
 
 ```text
-webui2 SPA
-   │  GET /api/storage, PATCH /api/storage/guard
-   ▼
-webui2 HTTP resources
-   │  import diskguard.api / diskguard.storage / diskguard.guard
-   ▼
-diskguard.core (Deluge plugin: config, state, get_storage)
+deluge-gtk GTK UI
+   │  client.diskguard.get_storage()
+   │  client.diskguard.get_guard_config() / set_guard_config()
+   ▼  Deluge RPC
+diskguard.core (core plugin: config, state, exported methods)
    │
    ├── storage.py   pure: mounts, statvfs, path mapping
    └── guard.py     pure: thresholds, hysteresis, pause selection
 ```
 
-`diskguard` is a Deluge core plugin so the guard can query the torrent manager
-and pause/resume torrents. The plugin does not serve HTTP itself; `webui2`
-mounts the resources and keeps the single auth/push/SSE boundary.
+One egg provides both the core plugin and the GTK UI plugin. The core runs in
+`deluged` so the guard can query the torrent manager and pause/resume torrents.
+The GTK UI runs in `deluge-gtk` and calls only exported core methods; it does
+not start an HTTP server or duplicate Deluge's RPC authentication.
 
 ## Path model
 
@@ -106,6 +107,15 @@ The guard loop lives in `core.py`: a low-frequency `LoopingCall` runs
 `statvfs` in a thread for network mounts and applies transitions through the
 Deluge core's torrent manager.
 
+## GTK UI
+
+`diskguard/gtkui.py` is a `Gtk3PluginBase` plugin. It adds a Storage page or
+dialog that lists `disks[]`, shows low/OK state, and edits the guard config
+through `client.diskguard.*`. It also warns when an add or move target maps to
+a low disk. The stock GTK dialogs are not replaced; DiskGuard adds a page or
+dialog of its own. GTK imports stay inside the module so the headless core
+tests do not need PyGObject.
+
 ## Performance and guard loop
 
 `os.statvfs` is cheap on local disks; a hung NFS/CIFS mount can block.
@@ -123,6 +133,6 @@ not guarded.
 ## Security
 
 - Read-only storage payload; no paths are mutated.
-- The mutating guard config endpoint is mounted by `webui2` and follows its
-  authz levels: read-only → 403, normal → 200.
+- The GTK UI uses the existing Deluge RPC session; DiskGuard adds no token or
+  HTTP auth layer.
 - No token, passkey or host/IP in logs or docs.
