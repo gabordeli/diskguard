@@ -82,16 +82,24 @@ Open `deluge-gtk` → `View` → `DiskGuard Storage` (or `Preferences` →
 `DiskGuard`). The view should list every real mount and mark the Deluge-used
 ones with `deluge: true`. The guard state and thresholds can be edited there.
 
+Settings are explicit: edit any number of rows, then click **Save guard
+settings**. **Reload** discards unsaved edits and loads the daemon config.
+An unchecked **Override** box means the mount inherits the default threshold;
+check it to store a per-mount override.
+
 ## Release smoke checklist
 
 1. Build the egg and install it on the daemon and the GTK client.
 2. Enable `DiskGuard`, restart `deluged`/`deluge-gtk`, open `View` →
    `DiskGuard Storage`; the disk list and defaults must appear.
-3. Set a high threshold on a test mount, add a torrent there and confirm the
+3. Change the defaults and two per-mount overrides, click **Save guard
+   settings**, then **Reload**; both overrides must persist and the status
+   must return to `Loaded from daemon`.
+4. Set a high threshold on a test mount, add a torrent there and confirm the
    guard pauses only the affected active torrents; restore the threshold.
-4. Resume the torrent manually while the disk is still low; the guard must not
+5. Resume the torrent manually while the disk is still low; the guard must not
    undo a manual pause on the next `ok` transition.
-5. Set the threshold low again and confirm a `LowTargetEvent` warning appears
+6. Set the threshold low again and confirm a `LowTargetEvent` warning appears
    once for a new/moved torrent path.
 
 The guard state is in memory only in 0.1.0; no data is moved or deleted.

@@ -111,13 +111,19 @@ Deluge core's torrent manager.
 
 `diskguard/gtkui.py` is a `Gtk3PluginBase` plugin. It adds a Preferences
 page (`Preferences` → `DiskGuard`) and a `View` → `DiskGuard Storage` entry
-that selects the same page. The page lists `disks[]`, shows low/OK state, and
-edits the guard config through `client.diskguard.*`. The core guard loop
-detects a torrent path that first appears on a low disk and emits
-`LowTargetEvent(torrent_id, path, mount)`; the GTK UI shows one non-blocking
-dialog per `(torrent, path, mount)`. This covers add and move paths. The stock
-GTK dialogs are not replaced; DiskGuard adds a page of its own. GTK imports
-stay inside the module so the headless core tests do not need PyGObject.
+that selects the same page. The page renders each filesystem as a padded card
+with a drive icon, a low/OK badge, a rounded usage bar and a summary tile
+strip plus an aggregate capacity ring; the CSS is scoped to `diskguard-*`
+classes so it does not restyle the stock Deluge widgets. The page lists
+`disks[]`, shows low/OK state, and edits the guard config through
+`client.diskguard.*`. Settings use one table and one **Save guard settings**
+action; **Reload** discards edits and an unchecked Override row inherits the
+defaults. The core guard loop detects a torrent path that first appears on a
+low disk and emits `LowTargetEvent(torrent_id, path, mount)`; the GTK UI shows
+one non-blocking dialog per `(torrent, path, mount)`. This covers add and move
+paths. The stock GTK dialogs are not replaced; DiskGuard adds a page of its
+own. GTK imports stay inside the module so the headless core tests do not need
+PyGObject.
 
 ## Performance and guard loop
 

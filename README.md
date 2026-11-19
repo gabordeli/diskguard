@@ -20,9 +20,9 @@ shows one value, for one path. DiskGuard fills that gap:
   `move_completed_path` targets to filesystems;
 - exposes a stable `disks[]` payload;
 - runs a per-filesystem guard with hysteresis and notifications;
-- ships a GTK UI page/dialog for the storage view, guard settings and
-  low-disk warnings (`View` → `DiskGuard Storage`, or
-  `Preferences` → `DiskGuard`).
+- ships a GTK UI page/dialog with per-disk cards, usage bars, a single
+  Save/Reload settings table and low-disk warnings (`View` →
+  `DiskGuard Storage`, or `Preferences` → `DiskGuard`).
 
 It is **standalone**: one egg contains the core plugin and the GTK UI plugin.
 The GTK client talks to the daemon through Deluge RPC; there is no `webui2`

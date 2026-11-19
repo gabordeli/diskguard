@@ -6,6 +6,14 @@
 
 - `View` → `DiskGuard Storage` entry in the main window; it opens the
   Preferences → DiskGuard page directly.
+- Styled GTK page: padded cards, summary tiles, disk icons, low/OK badges,
+  rounded usage bars, an aggregate capacity ring and a themed layout that
+  works in light and dark themes.
+- Per-mount settings table with one **Save guard settings** action, explicit
+  **Reload** and an unsaved-changes indicator; unchecked Override rows inherit
+  the defaults.
+- Deluge plugin metadata now exposes the author, email and homepage; the
+  plugin description is a short 1–2 sentence text instead of the README.
 
 ## [0.1.0] - 2026-11-19
 

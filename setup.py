@@ -2,4 +2,9 @@
 
 from setuptools import setup
 
-setup()
+setup(
+    author="Gabor Deli",
+    author_email="gabor.deli@gmail.com",
+    url="https://cirice-gitlab.ddns.net/gabor/diskguard",
+    platforms=["any"],
+)

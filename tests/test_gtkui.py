@@ -9,16 +9,47 @@ from twisted.internet import defer
 from diskguard import GtkUIPlugin
 from diskguard.gtkui import (
     GtkUI,
-    clear_mount_payload,
-    defaults_payload,
-    disk_rows,
+    disk_labels,
+    disk_meta,
+    disk_summary,
+    disk_used_fraction,
     format_bytes,
     format_pct,
     mount_choices,
-    mount_payload,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "storage_payload.json"
+
+
+class FakeStyleContext:
+    providers = []
+
+    def __init__(self):
+        self.classes = set()
+
+    def add_class(self, name):
+        self.classes.add(name)
+
+    def remove_class(self, name):
+        self.classes.discard(name)
+
+    @classmethod
+    def add_provider_for_screen(cls, screen, provider, priority):
+        cls.providers.append((screen, provider, priority))
+
+    @classmethod
+    def remove_provider_for_screen(cls, screen, provider):
+        cls.providers = [
+            item for item in cls.providers if item[1] is not provider
+        ]
+
+
+class FakeCssProvider:
+    def __init__(self):
+        self.data = None
+
+    def load_from_data(self, data):
+        self.data = data
 
 
 class FakeWidget:
@@ -28,6 +59,7 @@ class FakeWidget:
         self.callbacks = {}
         self.shown = False
         self.destroyed = False
+        self.style_context = FakeStyleContext()
 
     def pack_start(self, child, expand=False, fill=False, padding=0):
         self.children.append(child)
@@ -45,12 +77,16 @@ class FakeWidget:
         self.shown = True
 
     def show_all(self):
-        pass
+        self.shown = True
+        for child in self.children:
+            show_all = getattr(child, "show_all", None)
+            if show_all is not None:
+                show_all()
 
     def set_tooltip_text(self, text):
         self.tooltip = text
 
-    def connect(self, signal, callback):
+    def connect(self, signal, callback, *args, **kwargs):
         self.callbacks[signal] = callback
 
     def get_children(self):
@@ -61,6 +97,51 @@ class FakeWidget:
 
     def destroy(self):
         self.destroyed = True
+
+    def get_style_context(self):
+        return self.style_context
+
+    def set_margin_start(self, value):
+        self.margin_start = value
+
+    def set_margin_end(self, value):
+        self.margin_end = value
+
+    def set_margin_top(self, value):
+        self.margin_top = value
+
+    def set_margin_bottom(self, value):
+        self.margin_bottom = value
+
+    def set_halign(self, value):
+        self.halign = value
+
+    def set_valign(self, value):
+        self.valign = value
+
+    def set_hexpand(self, value):
+        self.hexpand = value
+
+    def set_vexpand(self, value):
+        self.vexpand = value
+
+    def set_size_request(self, width, height):
+        self.size_request = (width, height)
+
+    def set_line_wrap(self, value):
+        self.line_wrap = value
+
+    def set_xalign(self, value):
+        self.xalign = value
+
+    def set_opacity(self, value):
+        self.opacity = value
+
+    def set_sensitive(self, value):
+        self.sensitive = bool(value)
+
+    def get_sensitive(self):
+        return getattr(self, "sensitive", True)
 
 
 class FakeMenuItem(FakeWidget):
@@ -107,6 +188,9 @@ class FakeSpinButton(FakeWidget):
     def set_digits(self, digits):
         self.digits = digits
 
+    def set_increments(self, step, page):
+        self.increments = (step, page)
+
     def set_value(self, value):
         self.value = float(value)
 
@@ -136,10 +220,73 @@ class FakeComboBoxText(FakeWidget):
         return self.items[self.active_index]
 
 
+class FakeGrid(FakeWidget):
+    def attach(self, child, left, top, width, height):
+        self.children.append(child)
+
+
+class FakeImage(FakeWidget):
+    @classmethod
+    def new_from_icon_name(cls, name, size):
+        image = cls(icon_name=name, icon_size=size)
+        image.icon_name = name
+        image.icon_size = size
+        return image
+
+
+class FakeDrawingArea(FakeWidget):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.fraction = 0.0
+        self.low = False
+        self.queued = False
+
+    def queue_draw(self):
+        self.queued = True
+
+
+class FakeProgressBar(FakeWidget):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.fraction = 0.0
+        self.show_text = False
+        self.text = ""
+
+    def set_fraction(self, fraction):
+        self.fraction = fraction
+
+    def set_show_text(self, show):
+        self.show_text = show
+
+    def set_text(self, text):
+        self.text = text
+
+
+class FakeSeparator(FakeWidget):
+    pass
+
+
+class FakeGdk:
+    class Screen:
+        @staticmethod
+        def get_default():
+            return "screen"
+
+
 class FakeGtk:
     class Orientation:
         VERTICAL = 1
         HORIZONTAL = 2
+
+    class Align:
+        START = 1
+        CENTER = 2
+        END = 3
+        FILL = 4
+
+    class IconSize:
+        BUTTON = 1
+        DIALOG = 2
 
     class MessageType:
         WARNING = 1
@@ -154,7 +301,15 @@ class FakeGtk:
     SpinButton = FakeSpinButton
     ComboBoxText = FakeComboBoxText
     Frame = FakeWidget
+    Grid = FakeGrid
+    Image = FakeImage
+    DrawingArea = FakeDrawingArea
+    ProgressBar = FakeProgressBar
+    Separator = FakeSeparator
     MenuItem = FakeMenuItem
+    CssProvider = FakeCssProvider
+    StyleContext = FakeStyleContext
+    STYLE_PROVIDER_PRIORITY_APPLICATION = 800
     MessageDialog = None
 
 
@@ -229,7 +384,8 @@ class FakeDiskGuard:
 
     def set_guard_config(self, payload):
         self.saved.append(payload)
-        return defer.succeed(payload)
+        self.config.update(payload)
+        return defer.succeed(self.config)
 
 
 @pytest.fixture(scope="module")
@@ -251,17 +407,25 @@ def test_format_helpers():
     assert format_pct(-1) == "0.0%"
 
 
-def test_disk_rows_preserve_order_and_units():
+def test_disk_helpers_preserve_order_and_units():
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
-    rows = disk_rows(payload)
+    summary = disk_summary(payload)
 
-    assert rows[0][0] == "/mnt/usbhdd2"
-    assert rows[0][2] == "100 B"
-    assert rows[0][4] == "90.0%"
-    assert rows[0][-1] == "LOW"
-    assert rows[-1][0] == "/mnt/backup"
-    assert rows[-1][-1] == "OK"
+    assert summary == {
+        "disks": 3,
+        "low": 1,
+        "free": 100,
+        "total": 1000,
+        "used": 900,
+        "unknown": 1,
+    }
+    assert disk_used_fraction(payload["disks"][0]) == 0.9
+    assert disk_used_fraction({"total": 0, "free": 0}) == 0.0
+    assert disk_meta(payload["disks"][0]).startswith("ext4 · 100 B free")
+    assert disk_meta(payload["disks"][0]).endswith("90.0% used")
+    assert disk_labels(payload["disks"][0]) == "film"
+    assert disk_labels({"labels": []}) == "No labels"
 
 
 def test_mount_choices_include_overrides():
@@ -277,26 +441,15 @@ def test_mount_choices_include_overrides():
 def test_empty_payload_helpers():
     payload = {"disks": [], "unknown": []}
 
-    assert disk_rows(payload) == []
+    assert disk_summary(payload) == {
+        "disks": 0,
+        "low": 0,
+        "free": 0,
+        "total": 0,
+        "used": 0,
+        "unknown": 0,
+    }
     assert mount_choices(payload, {"per_mount": {}}) == []
-
-
-def test_payload_builders():
-    assert defaults_payload(False, 20, 6) == {
-        "enabled": False,
-        "default_min_free_gb": 20.0,
-        "resume_margin_gb": 6.0,
-    }
-    assert mount_payload("/mnt/x", 20, 6, "notify") == {
-        "per_mount": {
-            "/mnt/x": {
-                "min_free_gb": 20.0,
-                "resume_margin_gb": 6.0,
-                "action": "notify",
-            }
-        }
-    }
-    assert clear_mount_payload("/mnt/x") == {"per_mount": {"/mnt/x": {}}}
 
 
 def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
@@ -322,6 +475,7 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     gi.require_version = lambda *args: None
     repository = ModuleType("gi.repository")
     repository.Gtk = FakeGtk
+    repository.Gdk = FakeGdk
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
 
@@ -363,13 +517,54 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     assert preferences.shown == ["DiskGuard"]
     rows = gtk_ui._rows_box.get_children()
     assert len(rows) == 4
-    assert rows[-1].text.startswith("Unknown:")
+    assert all(row.shown for row in rows)
+    assert "diskguard-card" in rows[0].style_context.classes
+    assert "diskguard-card-low" in rows[0].style_context.classes
+    assert rows[0].children[1].fraction == 0.9
+    assert rows[0].children[1].low is True
+    assert rows[0].children[1].tooltip == "90.0% used"
+    assert gtk_ui._disk_count_label.text == "3"
+    assert gtk_ui._low_count_label.text == "1"
+    assert gtk_ui._free_total_label.text == "100 B"
+    assert gtk_ui._capacity_label.text == "90.0% used"
+    assert gtk_ui._capacity_bar.fraction == 0.9
+    assert gtk_ui._capacity_bar.low is True
+    assert gtk_ui._unknown_label.text.startswith("Unknown paths:")
+    assert gtk_ui._page.margin_start == 18
     assert gtk_ui._default_min.get_value() == 10.0
-    assert gtk_ui._mount_combo.get_active_text() == "/"
+    assert set(gtk_ui._mount_rows) == {
+        "/",
+        "/mnt/backup",
+        "/mnt/usbhdd2",
+    }
+    disk_row = gtk_ui._mount_rows["/mnt/usbhdd2"]
+    assert disk_row["override"].get_active() is True
+    assert disk_row["override"].shown is True
+    assert disk_row["min"].get_value() == 20.0
+    assert disk_row["min"].get_sensitive() is True
+    root_row = gtk_ui._mount_rows["/"]
+    assert root_row["override"].get_active() is False
+    assert root_row["min"].get_value() == 10.0
+    assert root_row["min"].get_sensitive() is False
+    assert gtk_ui._settings_status.text.startswith("Loaded from daemon")
 
-    gtk_ui._mount_combo.set_active(2)
-    gtk_ui._on_mount_changed()
-    assert gtk_ui._mount_min.get_value() == 20.0
+    gtk_ui._default_min.set_value(12)
+    gtk_ui._on_default_changed()
+    assert root_row["min"].get_value() == 12.0
+    assert disk_row["min"].get_value() == 20.0
+    gtk_ui._default_min.set_value(10)
+    gtk_ui._on_default_changed()
+
+    gtk_ui._render_storage({"disks": [], "unknown": []})
+    assert gtk_ui._rows_box.get_children() == []
+    assert gtk_ui._disk_count_label.text == "0"
+    assert gtk_ui._low_count_label.text == "0"
+    assert gtk_ui._capacity_label.text == "— used"
+    assert gtk_ui._capacity_bar.fraction == 0.0
+    assert "diskguard-low-value" not in (
+        gtk_ui._low_count_label.style_context.classes
+    )
+    gtk_ui._render_storage(payload)
 
     gtk_ui._on_low_target_event(
         "t1", "/mnt/usbhdd2/downloads", "/mnt/usbhdd2"
@@ -383,26 +578,47 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     gtk_ui.enable()
     assert list(preferences.pages) == ["DiskGuard"]
 
+    root_row = gtk_ui._mount_rows["/"]
+    root_row["override"].set_active(True)
+    gtk_ui._on_override_toggled(root_row["override"], "/")
+    root_row["min"].set_value(30)
+    root_row["margin"].set_value(6)
+    root_row["action"].set_active(1)
     gtk_ui._enabled.set_active(False)
     gtk_ui._default_min.set_value(12)
     gtk_ui._default_margin.set_value(6)
-    gtk_ui._on_apply_defaults()
+    gtk_ui._mark_dirty()
+    assert gtk_ui._dirty is True
+    assert "Unsaved changes" in gtk_ui._settings_status.text
+
+    gtk_ui._on_save()
     assert fake_core.saved[-1] == {
         "enabled": False,
         "default_min_free_gb": 12.0,
         "resume_margin_gb": 6.0,
+        "per_mount": {
+            "/": {
+                "min_free_gb": 30.0,
+                "resume_margin_gb": 6.0,
+                "action": "notify",
+            },
+            "/mnt/usbhdd2": {
+                "min_free_gb": 20.0,
+                "resume_margin_gb": 5.0,
+                "action": "pause",
+            },
+        },
     }
+    assert gtk_ui._dirty is False
+    assert gtk_ui._mount_rows["/"]["min"].get_value() == 30.0
+    assert gtk_ui._settings_status.text.startswith("Loaded from daemon")
 
-    gtk_ui._mount_min.set_value(25)
-    gtk_ui._mount_margin.set_value(7)
-    gtk_ui._mount_action.set_active(1)
-    gtk_ui._on_apply_mount()
-    assert fake_core.saved[-1] == mount_payload(
-        "/mnt/usbhdd2", 25, 7, "notify"
-    )
-
-    gtk_ui._on_clear_mount()
-    assert fake_core.saved[-1] == clear_mount_payload("/mnt/usbhdd2")
+    gtk_ui._mount_rows["/"]["min"].set_value(99)
+    gtk_ui._mark_dirty()
+    assert "Unsaved changes" in gtk_ui._settings_status.text
+    gtk_ui._on_reload()
+    assert gtk_ui._mount_rows["/"]["min"].get_value() == 30.0
+    assert gtk_ui._dirty is False
 
     gtk_ui.disable()
     assert preferences.pages == {}

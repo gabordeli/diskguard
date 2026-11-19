@@ -84,6 +84,10 @@ Validation:
 - unknown top-level or per-mount keys are rejected;
 - the response is the same shape as `get_guard_config()`.
 
+`per_mount` is a complete map, not a patch: it replaces the stored overrides
+for every mount. The GTK UI therefore sends all visible rows in one save. Send
+`"per_mount": {}` to clear every override.
+
 Invalid input raises `ValueError`, which Deluge returns as an RPC error. The
 GTK UI maps it to a dialog/message.
 

@@ -1,0 +1,2 @@
+DiskGuard is a standalone Deluge 2.x core + GTK plugin for per-filesystem
+free-space awareness and a hysteresis-based low-disk guard.

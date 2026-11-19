@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "DiskGuard"
 description = "Multi-filesystem free-space awareness and guard for Deluge 2.x"
-readme = "README.md"
+readme = { file = "PLUGIN_DESCRIPTION", content-type = "text/plain" }
 requires-python = ">=3.9"
 license = "GPL-3.0-or-later"
 authors = [{ name = "Gabor Deli", email = "gabor.deli@gmail.com" }]
@@ -21,6 +21,11 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://cirice-gitlab.ddns.net/gabor/diskguard"
+Source = "https://cirice-gitlab.ddns.net/gabor/diskguard"
+Issues = "https://cirice-gitlab.ddns.net/gabor/diskguard/-/issues"
 
 [project.entry-points."deluge.plugin.core"]
 DiskGuard = "diskguard:CorePlugin"

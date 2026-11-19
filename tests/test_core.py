@@ -56,6 +56,25 @@ def test_set_guard_config_round_trips():
     assert result["per_mount"]["/mnt/usbhdd2"]["min_free_gb"] == 30.0
 
 
+def test_set_guard_config_replaces_per_mount_map():
+    core = Core("DiskGuard")
+    core.enable()
+    core.set_guard_config(
+        {
+            "per_mount": {
+                "/mnt/one": {"min_free_gb": 10},
+                "/mnt/two": {"min_free_gb": 20},
+            }
+        }
+    )
+
+    result = core.set_guard_config(
+        {"per_mount": {"/mnt/one": {"min_free_gb": 30}}}
+    )
+
+    assert result["per_mount"] == {"/mnt/one": {"min_free_gb": 30.0}}
+
+
 def test_set_guard_config_rejects_unknown_key():
     core = Core("DiskGuard")
     core.enable()
