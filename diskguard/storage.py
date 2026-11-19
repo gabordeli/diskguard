@@ -25,6 +25,7 @@ PSEUDO_FS = frozenset(
         "fusectl",
         "hugetlbfs",
         "mqueue",
+        "nfsd",
         "nsfs",
         "overlay",
         "pstore",

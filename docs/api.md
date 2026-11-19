@@ -31,7 +31,8 @@ Read-only. Returns the per-filesystem view.
 
 - `disks[]` is sorted low-first, then by mountpoint.
 - `deluge` is true when at least one Deluge path maps to the filesystem.
-- `low` is true when the mount has a threshold and is below it.
+- `low` is true when the mount has a threshold and is below it; thresholds
+  are applied only to Deluge-used mounts, so backup/system mounts stay OK.
 - `torrents` is a count; `paths`/`labels` are unique values.
 - `unknown[]` lists paths that could not be mapped or statted.
 - `used_pct` is a 0..1 fraction, rounded to 4 decimals.

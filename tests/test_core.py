@@ -149,6 +149,19 @@ def _enabled_core(monkeypatch):
     return core
 
 
+def test_thresholds_only_include_deluge_used_mounts(monkeypatch):
+    core = _enabled_core(monkeypatch)
+    mounts = [
+        Mount("/dev/sda1", "/mnt/used", "ext4"),
+        Mount("/dev/sdb1", "/mnt/unused", "ext4"),
+    ]
+    uses = [PathUse("/mnt/used/a", "t1")]
+
+    thresholds = core._thresholds(mounts, uses)
+
+    assert set(thresholds) == {"/mnt/used"}
+
+
 def test_guard_loop_start_stop_is_idempotent(monkeypatch):
     loops = []
 

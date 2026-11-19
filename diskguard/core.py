@@ -87,13 +87,19 @@ class Core(CorePluginBase):
     def _collect_uses(self):
         return storage.collect_paths(self._core(), self._label_plugin())
 
-    def _thresholds(self, mounts):
+    def _thresholds(self, mounts, uses):
         default, per_mount = guard.settings_from_config(self.config or {})
+        used = set()
+        for use in uses:
+            mount = storage.canonical_mount(use.path, mounts)
+            if mount is not None:
+                used.add(mount.mountpoint)
         return {
             mount.mountpoint: guard.settings_for(
                 mount.mountpoint, default, per_mount
             ).min_free_bytes
             for mount in mounts
+            if mount.mountpoint in used
         }
 
     def _enabled(self):
@@ -106,7 +112,7 @@ class Core(CorePluginBase):
         try:
             uses = self._collect_uses()
             mounts = self.mounts()
-            thresholds = self._thresholds(mounts)
+            thresholds = self._thresholds(mounts, uses)
         except Exception:
             self._polling = False
             log.exception("DiskGuard poll setup failed")
@@ -313,7 +319,7 @@ class Core(CorePluginBase):
         uses = self._collect_uses()
         mounts = self.mounts()
         disks, unknown = storage.build_disks(
-            uses, mounts, thresholds=self._thresholds(mounts)
+            uses, mounts, thresholds=self._thresholds(mounts, uses)
         )
         self._cache = {"disks": disks, "unknown": unknown}
         return self._cache

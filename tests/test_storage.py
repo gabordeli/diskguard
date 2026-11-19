@@ -107,6 +107,7 @@ def test_real_mounts_filters_pseudo_filesystems():
         Mount("sysfs", "/sys", "sysfs"),
         Mount("overlay", "/", "overlay"),
         Mount("tmpfs", "/run", "tmpfs"),
+        Mount("nfsd", "/proc/fs/nfsd", "nfsd"),
         Mount("/dev/sda1", "/mnt/data", "ext4"),
     ]
     assert [mount.mountpoint for mount in real_mounts(mounts)] == ["/mnt/data"]
