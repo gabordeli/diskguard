@@ -14,6 +14,11 @@
   the defaults.
 - Deluge plugin metadata now exposes the author, email and homepage; the
   plugin description is a short 1–2 sentence text instead of the README.
+- Compact DiskGuard item in the main status bar (`N disks · X free`, red on a
+  low disk) with a 30-second refresh and click-through to the GTK page.
+- Manual `release` and `deploy` GitLab stages; release publishes the egg and
+  SHA256, deploy installs the core plugin and restarts `deluged`.
+- README/badges, Ko-fi, GitHub mirror release workflow and contributor notes.
 
 ## [0.1.0] - 2026-11-19
 

@@ -2,9 +2,12 @@ stages:
   - lint
   - test
   - build
+  - release
+  - deploy
 
 variables:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  RELEASE_TYPE: patch
 
 .python_setup: &python_setup
   - rm -rf .ci-venv
@@ -64,9 +67,53 @@ build:
   before_script: *python_setup
   script:
     - .ci-venv/bin/python -m build
-    - .ci-venv/bin/python setup.py bdist_egg
+    - PYTHON=.ci-venv/bin/python ./scripts/package.sh
     - .ci-venv/bin/python -c "import glob, zipfile; p = sorted(glob.glob('dist/DiskGuard-*.egg'))[-1]; t = zipfile.ZipFile(p).read('EGG-INFO/entry_points.txt').decode(); assert 'deluge.plugin.core' in t and 'deluge.plugin.gtk3ui' in t; print('entry points ok')"
   artifacts:
     paths:
       - dist/
     expire_in: 1 week
+
+release:
+  stage: release
+  extends: .python_job
+  dependencies: [build]
+  before_script: *python_setup
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+  script:
+    - git config user.email "ci@example.invalid"
+    - git config user.name "GitLab CI"
+    - VERSION=$(./scripts/release.sh "$RELEASE_TYPE")
+    - test -n "$VERSION"
+    - EGG=$(PYTHON=.ci-venv/bin/python ./scripts/package.sh)
+    - test -n "$EGG"
+    - git add diskguard/version.py CHANGELOG.md
+    - git commit -m "chore(release) v${VERSION}"
+    - git tag -f "v${VERSION}"
+    - git remote set-url origin "$CI_REPOSITORY_URL"
+    - git push origin "HEAD:${CI_DEFAULT_BRANCH}" "refs/tags/v${VERSION}"
+    - ./scripts/publish_release.sh "$VERSION" "$EGG"
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+
+deploy:
+  stage: deploy
+  needs: [release]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+  before_script:
+    - if [ -n "${DEPLOY_SSH_KEY:-}" ]; then install -d -m 700 ~/.ssh; printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519; chmod 600 ~/.ssh/id_ed25519; fi
+  script:
+    - test -n "${DEPLOY_HOST:-}" || { echo "DEPLOY_HOST CI variable is not set" >&2; exit 1; }
+    - DELUGE_CONFIG_DIR="${DELUGE_CONFIG_DIR:-/var/lib/deluged/config}"
+    - DELUGE_SERVICE="${DELUGE_SERVICE:-deluged}"
+    - EGG="$(ls -t dist/DiskGuard-*.egg | head -n1)"
+    - test -n "$EGG"
+    - EGG_NAME="$(basename "$EGG")"
+    - scp -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$EGG" "$DEPLOY_HOST:/tmp/$EGG_NAME"
+    - ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$DEPLOY_HOST" "set -e; install -d -m 755 '$DELUGE_CONFIG_DIR/plugins'; find '$DELUGE_CONFIG_DIR/plugins' -maxdepth 1 -type f -name 'DiskGuard-*.egg' ! -name '$EGG_NAME' -delete; install -m 644 '/tmp/$EGG_NAME' '$DELUGE_CONFIG_DIR/plugins/'; systemctl restart '$DELUGE_SERVICE'; systemctl is-active --quiet '$DELUGE_SERVICE'"

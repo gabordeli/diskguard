@@ -1,101 +1,167 @@
 # DiskGuard
 
-Multi-filesystem free-space awareness and guard for **Deluge 2.x**.
+Per-filesystem free-space awareness and a low-disk guard for **Deluge 2.x**.
+DiskGuard runs as a standalone core plugin in `deluged` and adds its own GTK
+page in `deluge-gtk`; the stock 8112 `deluge-web` stays untouched.
 
-The stock Deluge status bar asks for the free space of the *default download
-location* only. On a server with several HDDs that hides every other filesystem,
-and a full disk can silently stop downloads. DiskGuard models each filesystem
-separately and can pause only the torrents that are writing to the full disk.
+[![Release](https://img.shields.io/github/v/release/gabordeli/diskguard?style=flat-square&color=2ea44f)](https://github.com/gabordeli/diskguard/releases)
+[![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](https://www.python.org/)
+[![Deluge](https://img.shields.io/badge/deluge-2.x-1f6feb?style=flat-square)](https://deluge-torrent.org/)
+[![Release workflow](https://github.com/gabordeli/diskguard/actions/workflows/release.yml/badge.svg)](https://github.com/gabordeli/diskguard/actions/workflows/release.yml)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-ff5e5b?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/gabordeli)
 
-**Status:** 0.1.0 released. The main-window entry is on `main` (unreleased).
+## 📸 Screenshot
 
-## Why
+<img src="docs/assets/screenshot-storage.png" width="720" alt="DiskGuard storage page">
 
-Deluge 2.x core has `get_free_space(path)` but no low-disk gate: `add()` does
-not check free space, and there is no `max_disk_space` setting. The stock UI
-shows one value, for one path. DiskGuard fills that gap:
+Demo data from a fictional five-disk server. The page shows one low disk,
+per-filesystem usage bars, an aggregate capacity ring and the batch guard
+settings table.
 
-- discovers real mounts and filesystem stats;
-- maps the session default, torrent paths, and session/torrent/Label
-  `move_completed_path` targets to filesystems;
-- exposes a stable `disks[]` payload;
-- runs a per-filesystem guard with hysteresis and notifications;
-- ships a GTK UI page/dialog with per-disk cards, usage bars, a single
-  Save/Reload settings table and low-disk warnings (`View` →
-  `DiskGuard Storage`, or `Preferences` → `DiskGuard`).
+## 📊 Status
 
-It is **standalone**: one egg contains the core plugin and the GTK UI plugin.
-The GTK client talks to the daemon through Deluge RPC; there is no `webui2`
-dependency and no second HTTP server. The stock `deluge-web` on 8112 stays
-untouched.
+Current release: **v0.1.0**. The styled GTK page, batch settings table,
+status-bar item and plugin metadata are on `main` and will ship in the next
+release.
 
-## Data model
+- **Storage model:** real mounts from `/proc/self/mounts`, `statvfs`, `st_dev`
+  grouping, bind-mount aliases and `unknown[]` paths.
+- **Path mapping:** session, active torrent, completed torrent and Label
+  `move_completed_path` targets.
+- **Guard:** per-filesystem thresholds, hysteresis, `pause`/`notify` actions;
+  only active download/check/move/queue states are paused, seeding is left
+  alone, and a manual user pause is never resumed by the guard.
+- **GTK page:** disk cards with LOW/OK badges, usage bars, a capacity ring and
+  low-target warnings. `View` → `DiskGuard Storage` jumps straight to
+  `Preferences` → `DiskGuard`.
+- **Settings:** one table for all mounts, one **Save guard settings** action,
+  an explicit **Reload** and an unsaved-changes indicator. Unchecked
+  **Override** rows inherit the defaults.
+- **Status bar:** a compact `N disks · X free` item next to the stock Deluge
+  status items; a low disk turns it red and clicking it opens the page.
+- **RPC:** the GTK client uses the existing Deluge session
+  (`client.diskguard.*`); no second token, HTTP server or `webui2` dependency.
+- **CI:** lint, tests with coverage, headless GTK import, Deluge
+  2.0.3/2.1.1/2.2.0 compatibility, build, manual release and manual deploy.
+
+## 🧱 Architecture
+
+```mermaid
+flowchart LR
+    G["deluge-gtk<br/>DiskGuard GTK page"] -->|Deluge RPC| C["deluged<br/>DiskGuard core"]
+    C --> S["storage.py<br/>mounts + statvfs"]
+    C --> U["guard.py<br/>thresholds + hysteresis"]
+    C --> T["torrent manager<br/>pause / resume"]
+    M["/proc/self/mounts"] --> S
+    classDef ui fill:#1f6feb,color:#fff,stroke:#1f6feb
+    classDef core fill:#2ea44f,color:#fff,stroke:#2ea44f
+    classDef ext fill:#8250df,color:#fff,stroke:#8250df
+    class G ui
+    class C,S,U core
+    class T,M ext
+```
+
+One egg contains both the core plugin and the GTK UI plugin. The core does the
+mount discovery, `statvfs` work and torrent mutations; the GTK client only calls
+the exported core methods and renders the payload.
+
+## 🛡️ Guard semantics
+
+- **LOW** when `free < min_free_bytes` for that mount.
+- **OK** only when `free >= min_free_bytes + resume_margin_bytes`, so a disk
+  does not flap on every poll.
+- `pause` pauses only downloading/queued/checking/moving torrents on that
+  filesystem. Seeding is not paused.
+- Torrents paused by the guard are tracked separately; a manual pause is never
+  undone by an `ok` transition.
+- `notify` emits the transition without changing torrents.
+- No auto-remove: completed data on a full disk is a cleanup decision.
+
+The guard loop runs every 30 seconds. `statvfs` and payload building happen in
+a thread, so a hung network mount cannot block the Deluge reactor.
+
+## 📦 Data model
 
 ```json
 {
   "disks": [
     {
-      "mount": "/mnt/usbhdd2",
+      "mount": "/mnt/media1",
       "fs": "ext4",
       "total": 4000000000000,
-      "free": 80000000000,
-      "used": 3920000000000,
-      "used_pct": 0.98,
-      "paths": ["/mnt/usbhdd2/downloads"],
+      "free": 1200000000000,
+      "used": 2800000000000,
+      "used_pct": 0.70,
+      "paths": ["/mnt/media1/downloads"],
       "torrents": 42,
       "labels": ["film", "sorozat"],
       "deluge": true,
       "low": true
     }
   ],
-  "unknown": ["/mnt/missing/path"]
+  "unknown": ["/mnt/old-downloads"]
 }
 ```
 
 Paths are grouped by `st_dev`, so bind mounts of the same filesystem do not
-appear twice. The mount label is the longest matching mountpoint from
+appear twice. The display mount is the longest matching mountpoint from
 `/proc/self/mounts`.
 
-## Guard semantics
-
-- Low: `free < min_free_bytes` for that mount.
-- OK: `free >= min_free_bytes + resume_margin_bytes` (hysteresis).
-- `pause` action pauses **only downloading/queued/checking torrents on that
-  filesystem**. Seeding is left alone (it does not write, and pausing it would
-  hurt HnR).
-- Torrents paused by the guard are tracked separately, so the guard never
-  resumes a torrent the user paused by hand.
-- `notify` action emits an event without pausing.
-- No auto-remove: a full disk with completed data needs a cleanup decision,
-  not an automatic delete.
-
-## Layout
-
-```text
-diskguard/          Deluge core plugin + pure storage/guard logic
-  core.py           enable/disable, config, exported RPC methods
-  storage.py        mount discovery, statvfs, path mapping
-  guard.py          thresholds, hysteresis, pause selection
-  gtkui.py          GTK UI plugin (storage page/dialog, warnings)
-tests/              pytest; Deluge/GTK stubs for unit tests
-docs/               design, API, install, decisions
-```
-
-## Commands
+## 🛠️ Development
 
 ```bash
+python3 -m venv .venv
+.venv/bin/pip install pytest pytest-cov ruff build twisted wheel setuptools
+
 .venv/bin/pytest
 .venv/bin/ruff check .
-.venv/bin/python setup.py bdist_egg
+./scripts/package.sh          # dist/DiskGuard-<version>-py3.x.egg + .sha256
+
+# Real GTK page without a daemon (Xvfb + Deluge/GTK installed):
+PYTHONPATH=. xvfb-run -a python3 scripts/gtk_smoke.py
+
+./scripts/release.sh patch --dry-run
 ```
 
-The normal unit-test run uses `tests/stubs`; the CI compatibility job sets
+The normal pytest run uses `tests/stubs`; the CI compatibility job sets
 `DISKGUARD_REAL_DELUGE=1` to import real Deluge 2.x.
 
-## Documentation
+## 🚀 Installation
 
-- [docs/design.md](docs/design.md) – model and guard semantics
-- [docs/api.md](docs/api.md) – payload and core RPC methods used by the GTK UI
-- [docs/install.md](docs/install.md) – egg install, config, rollback
+Build the egg and install it on the daemon and on the GTK client, then restart
+both and enable `DiskGuard`:
+
+```bash
+./scripts/package.sh
+install -m 644 dist/DiskGuard-*.egg /path/to/deluge/config/plugins/
+```
+
+On the target Deluge host, the helper can install and restart the daemon:
+
+```bash
+sudo DELUGE_CONFIG_DIR=/var/lib/deluged/config ./scripts/install.sh dist/DiskGuard-*.egg
+```
+
+Use `View` → `DiskGuard Storage` (or `Preferences` → `DiskGuard`) after the
+client restart. Details and rollback: [docs/install.md](docs/install.md).
+
+## 📚 Documentation
+
+- [docs/install.md](docs/install.md) – egg install, config, verify and rollback
+- [docs/api.md](docs/api.md) – payload and exported RPC methods
+- [docs/design.md](docs/design.md) – storage model, guard semantics, GTK page
 - [docs/decisions.md](docs/decisions.md) – decisions and constraints
+- [docs/ci.md](docs/ci.md) – CI, release and deploy stages
 - [AGENTS.md](AGENTS.md) – working notes for agents
+
+## 🤝 Contributing
+
+The GitHub repository is a **one-way, read-only mirror** of the private GitLab
+development repository. Development happens on GitLab; GitHub issues/PRs may be
+ported by the maintainer. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## ☕ Support
+
+If the project is useful, you can support development via
+[Ko-fi](https://ko-fi.com/gabordeli).

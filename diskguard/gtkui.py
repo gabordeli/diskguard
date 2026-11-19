@@ -144,6 +144,9 @@ class GtkUI(Gtk3PluginBase):
         self._unknown_label = None
         self._capacity_bar = None
         self._capacity_label = None
+        self._status_item = None
+        self._status_timer = None
+        self._glib = None
 
     def enable(self):
         if self._page is not None:
@@ -165,6 +168,7 @@ class GtkUI(Gtk3PluginBase):
         component.get("Preferences").add_page(PAGE_NAME, page)
         self._add_menu_entry(Gtk)
         self._page = page
+        self._add_status_item(Gtk)
         self._refresh()
         log.info("DiskGuard GTK page enabled")
 
@@ -173,6 +177,7 @@ class GtkUI(Gtk3PluginBase):
             return
         from deluge import component
 
+        self._remove_status_item()
         self._remove_menu_entry()
         try:
             component.get("Preferences").remove_page(PAGE_NAME)
@@ -226,6 +231,88 @@ class GtkUI(Gtk3PluginBase):
             item.destroy()
         except Exception:
             log.exception("DiskGuard: menu entry removal failed")
+
+    def _add_status_item(self, Gtk):
+        from deluge import component
+        from gi.repository import GLib
+
+        self._glib = GLib
+        try:
+            statusbar = component.get("StatusBar")
+            self._status_item = statusbar.add_item(
+                icon="drive-harddisk-symbolic",
+                text="",
+                tooltip="DiskGuard storage",
+                callback=self._on_status_item_clicked,
+            )
+        except Exception:
+            log.exception("DiskGuard: status bar item unavailable")
+            self._status_item = None
+            return
+        self._status_item.set_markup("<small>DiskGuard</small>")
+        self._status_timer = GLib.timeout_add_seconds(
+            30, self._refresh_status_item
+        )
+        log.info("DiskGuard status bar item added")
+
+    def _remove_status_item(self):
+        item = self._status_item
+        self._status_item = None
+        if item is not None:
+            try:
+                from deluge import component
+
+                component.get("StatusBar").remove_item(item)
+            except Exception:
+                log.exception("DiskGuard: status bar item removal failed")
+        if self._status_timer is not None and self._glib is not None:
+            self._glib.source_remove(self._status_timer)
+        self._status_timer = None
+        self._glib = None
+
+    def _on_status_item_clicked(self, widget, event):
+        from deluge import component
+
+        component.get("Preferences").show(PAGE_NAME)
+
+    def _refresh_status_item(self):
+        if self._client is None:
+            return True
+        try:
+            deferred = self._client.diskguard.get_storage()
+        except Exception:
+            return True
+        deferred.addCallback(self._update_status_item)
+        deferred.addErrback(self._ignore_status_error)
+        return True
+
+    def _ignore_status_error(self, failure):
+        log.debug("DiskGuard: status bar refresh failed: %s", failure)
+        return None
+
+    def _update_status_item(self, payload):
+        if self._status_item is None:
+            return payload
+        summary = disk_summary(payload or {})
+        free = format_bytes(summary["free"])
+        if summary["low"]:
+            icon = "dialog-warning-symbolic"
+            markup = (
+                f'<span foreground="#e53935"><b>{summary["low"]} low</b>'
+                f"</span> · <small>{free} free</small>"
+            )
+        else:
+            icon = "drive-harddisk-symbolic"
+            markup = (
+                f'<small>{summary["disks"]} disks · {free} free</small>'
+            )
+        self._status_item.set_image_from_icon(icon)
+        self._status_item.set_markup(markup)
+        self._status_item.set_tooltip(
+            f"DiskGuard: {summary['disks']} filesystems, "
+            f"{summary['low']} low, {free} free; click for details."
+        )
+        return payload
 
     def _on_menu_activate(self, widget=None):
         from deluge import component
@@ -750,6 +837,7 @@ class GtkUI(Gtk3PluginBase):
             f"{summary['low']} low · "
             f"{summary['unknown']} {unknown}"
         )
+        self._update_status_item(self._storage)
 
     def _render_config(self, config):
         self._config = config or {}

@@ -354,6 +354,54 @@ class FakePreferences:
         self.shown.append(page)
 
 
+class FakeStatusItem:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.image = kwargs.get("icon")
+        self.markup = kwargs.get("text", "")
+        self.tooltip = kwargs.get("tooltip", "")
+        self.callback = kwargs.get("callback")
+
+    def set_image_from_icon(self, icon):
+        self.image = icon
+
+    def set_markup(self, markup):
+        self.markup = markup
+
+    def set_tooltip(self, tooltip):
+        self.tooltip = tooltip
+
+
+class FakeStatusBar:
+    def __init__(self):
+        self.items = []
+        self.removed = []
+
+    def add_item(self, **kwargs):
+        item = FakeStatusItem(**kwargs)
+        self.items.append(item)
+        return item
+
+    def remove_item(self, item):
+        self.removed.append(item)
+
+
+class FakeGLib:
+    timeouts = {}
+    next_id = 1
+
+    @classmethod
+    def timeout_add_seconds(cls, seconds, callback):
+        source_id = cls.next_id
+        cls.next_id += 1
+        cls.timeouts[source_id] = (seconds, callback)
+        return source_id
+
+    @classmethod
+    def source_remove(cls, source_id):
+        cls.timeouts.pop(source_id, None)
+
+
 class FakeBuilder:
     def __init__(self, objects):
         self.objects = objects
@@ -468,6 +516,9 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     }
     fake_core = FakeDiskGuard(payload, config)
     preferences = FakePreferences()
+    statusbar = FakeStatusBar()
+    FakeGLib.timeouts = {}
+    FakeGLib.next_id = 1
     view_menu = FakeWidget()
     main_window = FakeMainWindow(view_menu)
 
@@ -476,6 +527,7 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     repository = ModuleType("gi.repository")
     repository.Gtk = FakeGtk
     repository.Gdk = FakeGdk
+    repository.GLib = FakeGLib
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repository)
 
@@ -485,6 +537,8 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     def get_component(name):
         if name == "MainWindow":
             return main_window
+        if name == "StatusBar":
+            return statusbar
         return preferences
 
     monkeypatch.setattr(component, "get", get_component)
@@ -515,6 +569,15 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     assert menu_item.callbacks["activate"]
     menu_item.callbacks["activate"](menu_item)
     assert preferences.shown == ["DiskGuard"]
+    assert len(statusbar.items) == 1
+    status_item = statusbar.items[0]
+    assert status_item.image == "dialog-warning-symbolic"
+    assert "1 low" in status_item.markup
+    assert "100 B free" in status_item.markup
+    assert "3 filesystems" in status_item.tooltip
+    status_item.callback(status_item, None)
+    assert preferences.shown[-1] == "DiskGuard"
+    assert len(FakeGLib.timeouts) == 1
     rows = gtk_ui._rows_box.get_children()
     assert len(rows) == 4
     assert all(row.shown for row in rows)
@@ -561,6 +624,8 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     assert gtk_ui._low_count_label.text == "0"
     assert gtk_ui._capacity_label.text == "— used"
     assert gtk_ui._capacity_bar.fraction == 0.0
+    assert gtk_ui._status_item.image == "drive-harddisk-symbolic"
+    assert "0 disks" in gtk_ui._status_item.markup
     assert "diskguard-low-value" not in (
         gtk_ui._low_count_label.style_context.classes
     )
@@ -624,5 +689,7 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     assert preferences.pages == {}
     assert view_menu.children == []
     assert menu_item.destroyed is True
+    assert statusbar.removed == [status_item]
+    assert FakeGLib.timeouts == {}
     assert events["LowTargetEvent"] == []
     gtk_ui.disable()

@@ -87,6 +87,9 @@ settings**. **Reload** discards unsaved edits and loads the daemon config.
 An unchecked **Override** box means the mount inherits the default threshold;
 check it to store a per-mount override.
 
+The main status bar also shows a compact `N disks · X free` item; a low disk
+turns it red, and clicking it opens the DiskGuard page.
+
 ## Release smoke checklist
 
 1. Build the egg and install it on the daemon and the GTK client.

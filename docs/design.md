@@ -118,12 +118,13 @@ classes so it does not restyle the stock Deluge widgets. The page lists
 `disks[]`, shows low/OK state, and edits the guard config through
 `client.diskguard.*`. Settings use one table and one **Save guard settings**
 action; **Reload** discards edits and an unchecked Override row inherits the
-defaults. The core guard loop detects a torrent path that first appears on a
-low disk and emits `LowTargetEvent(torrent_id, path, mount)`; the GTK UI shows
-one non-blocking dialog per `(torrent, path, mount)`. This covers add and move
-paths. The stock GTK dialogs are not replaced; DiskGuard adds a page of its
-own. GTK imports stay inside the module so the headless core tests do not need
-PyGObject.
+defaults. A compact status-bar item shows `N disks · X free` (red when a disk
+is low) and opens the page on click. The core guard loop detects a torrent path
+that first appears on a low disk and emits `LowTargetEvent(torrent_id, path,
+mount)`; the GTK UI shows one non-blocking dialog per
+`(torrent, path, mount)`. This covers add and move paths. The stock GTK dialogs
+are not replaced; DiskGuard adds a page of its own. GTK imports stay inside the
+module so the headless core tests do not need PyGObject.
 
 ## Performance and guard loop
 

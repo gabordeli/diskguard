@@ -10,9 +10,10 @@ There is no `webui2` dependency and no separate HTTP server.
 - `diskguard/core.py` – Deluge core plugin, config, exported RPC methods
 - `diskguard/storage.py` – mount discovery, `statvfs`, path mapping (pure)
 - `diskguard/guard.py` – thresholds, hysteresis, pause selection (pure)
-- `diskguard/gtkui.py` – GTK UI plugin (Storage page/dialog, warnings)
+- `diskguard/gtkui.py` – GTK UI plugin (Storage page/dialog, status bar, warnings)
 - `tests/` – pytest; `tests/stubs` for unit tests without Deluge/GTK
-- `docs/` – design, API, install, decisions
+- `docs/` – design, API, install, CI, decisions
+- `scripts/` – package, release, deploy helpers
 
 ## Commands
 
@@ -20,6 +21,9 @@ There is no `webui2` dependency and no separate HTTP server.
 .venv/bin/pytest
 .venv/bin/ruff check .
 .venv/bin/python setup.py bdist_egg
+./scripts/package.sh
+./scripts/release.sh patch --dry-run
+PYTHONPATH=. xvfb-run -a python3 scripts/gtk_smoke.py
 ```
 
 ## Principles

@@ -46,6 +46,37 @@ class FakeMainWindow:
         return self.builder
 
 
+class FakeStatusItem:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.image = kwargs.get("icon")
+        self.markup = kwargs.get("text", "")
+        self.tooltip = kwargs.get("tooltip", "")
+
+    def set_image_from_icon(self, icon):
+        self.image = icon
+
+    def set_markup(self, markup):
+        self.markup = markup
+
+    def set_tooltip(self, tooltip):
+        self.tooltip = tooltip
+
+
+class FakeStatusBar:
+    def __init__(self):
+        self.items = []
+        self.removed = []
+
+    def add_item(self, **kwargs):
+        item = FakeStatusItem(**kwargs)
+        self.items.append(item)
+        return item
+
+    def remove_item(self, item):
+        self.removed.append(item)
+
+
 class FakeDiskGuard:
     def __init__(self, payload):
         self.payload = payload
@@ -79,12 +110,15 @@ def main():
     from gi.repository import Gtk
 
     preferences = FakePreferences()
+    statusbar = FakeStatusBar()
     view_menu = Gtk.Menu()
     main_window = FakeMainWindow(view_menu)
 
     def get_component(name):
         if name == "MainWindow":
             return main_window
+        if name == "StatusBar":
+            return statusbar
         return preferences
 
     component.get = get_component
@@ -95,6 +129,8 @@ def main():
     ui = GtkUI("DiskGuard")
     ui.enable()
     assert list(preferences.pages) == ["DiskGuard"]
+    assert len(statusbar.items) == 1
+    assert "1 low" in statusbar.items[0].markup
     menu_items = view_menu.get_children()
     assert len(menu_items) == 1
     assert menu_items[0].get_label() == "DiskGuard Storage"
@@ -103,6 +139,7 @@ def main():
     ui.disable()
     assert preferences.pages == {}
     assert view_menu.get_children() == []
+    assert statusbar.removed == [statusbar.items[0]]
     print("GTK smoke ok")
 
 
