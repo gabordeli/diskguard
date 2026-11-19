@@ -3,7 +3,7 @@
 ## Stages
 
 ```text
-lint  ->  test  ->  build  ->  release (manual)  ->  deploy (manual)
+lint  ->  test  ->  quality  ->  build  ->  release (manual)  ->  deploy (manual)
 ```
 
 - **lint:** `ruff check .`
@@ -38,6 +38,19 @@ is a separate machine; install the same egg there and restart `deluge-gtk`.
 A release commit pushed by the CI job token does not create a new pipeline.
 Create a pipeline for the new ref (or rerun the release/deploy jobs manually) if
 the release must be followed by another CI run.
+
+## SonarQube
+
+- Project key: `gabor_diskguard_93862863-0fd7-43a7-8a98-b9f51b7e6434`
+  (`sonar-project.properties`).
+- The `sonar` job runs on the default branch after `test`, feeds
+  `coverage.xml`, and uses the `sonarsource/sonar-scanner-cli` Docker image.
+- The quality gate is blocking (`sonar.qualitygate.wait=true`, 300 s timeout).
+- Required protected CI variables: `SONAR_HOST_URL` and `SONAR_TOKEN`. Use a
+  SonarQube **Project Analysis Token** for the DiskGuard project (My Account →
+  Security → Generate Tokens → Project Analysis Token); the webui2 project
+  token is scoped to webui2 and gets `403 Insufficient privileges` on this
+  project.
 
 ## GitHub mirror
 

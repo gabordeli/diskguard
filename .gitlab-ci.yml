@@ -1,6 +1,7 @@
 stages:
   - lint
   - test
+  - quality
   - build
   - release
   - deploy
@@ -60,6 +61,20 @@ deluge-compat:
         PY_IMAGE: ["python:3.11-slim"]
   script:
     - docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -e DISKGUARD_REAL_DELUGE=1 -e DELUGE_VERSION="$DELUGE_VERSION" -v "$PWD:/work" -w /work "$PY_IMAGE" bash -lc 'pip install -q "deluge==$DELUGE_VERSION" libtorrent pytest twisted && python -m pytest -q -p no:cacheprovider tests'
+
+sonar:
+  stage: quality
+  dependencies: [test]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - test -n "$SONAR_TOKEN"
+    - test -n "$SONAR_HOST_URL"
+    - command -v docker >/dev/null
+    - sed -i 's#<source>.*</source>#<source>diskguard</source>#' coverage.xml
+    - VERSION=$(awk -F'"' '/^__version__ = "/{print $2}' diskguard/version.py)
+    - mkdir -p "$HOME/.sonar"
+    - docker run --rm --network host -u "$(id -u):$(id -g)" -e SONAR_USER_HOME=/tmp/sonar-cache -v "$HOME/.sonar:/tmp/sonar-cache" -v "$PWD:/usr/src" -w /usr/src sonarsource/sonar-scanner-cli:latest -Dsonar.host.url="$SONAR_HOST_URL" -Dsonar.token="$SONAR_TOKEN" -Dsonar.projectVersion="$VERSION" -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300 -Dsonar.working.directory=/usr/src/.scannerwork
 
 build:
   stage: build

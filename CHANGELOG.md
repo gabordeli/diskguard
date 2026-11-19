@@ -21,6 +21,8 @@
 - Manual `release` and `deploy` GitLab stages; release publishes the egg and
   SHA256, deploy installs the core plugin and restarts `deluged`.
 - README/badges, Ko-fi, GitHub mirror release workflow and contributor notes.
+- SonarQube `quality` stage on the default branch with a blocking quality gate
+  and the `diskguard` coverage report.
 
 ## [0.1.0] - 2026-11-19
 

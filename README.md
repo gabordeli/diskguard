@@ -43,7 +43,8 @@ release.
 - **RPC:** the GTK client uses the existing Deluge session
   (`client.diskguard.*`); no second token, HTTP server or `webui2` dependency.
 - **CI:** lint, tests with coverage, headless GTK import, Deluge
-  2.0.3/2.1.1/2.2.0 compatibility, build, manual release and manual deploy.
+  2.0.3/2.1.1/2.2.0 compatibility, SonarQube quality gate, build, manual
+  release and manual deploy.
 
 ## 🧱 Architecture
 
