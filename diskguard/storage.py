@@ -201,6 +201,93 @@ def mount_aliases(
     return aliases
 
 
+def _add_config_paths(core, add) -> None:
+    try:
+        config = core.get_config_values(
+            ["download_location", "move_completed", "move_completed_path"]
+        )
+    except Exception:
+        config = {}
+    default = config.get("download_location")
+    if default:
+        add(PathUse(path=default, kind="session"))
+    move_target = config.get("move_completed_path")
+    if config.get("move_completed") and move_target:
+        add(PathUse(path=move_target, kind="move_completed"))
+
+
+def _torrent_status(torrent):
+    try:
+        return torrent.get_status(
+            [
+                "download_location",
+                "save_path",
+                "state",
+                "total_size",
+                "move_completed",
+                "move_completed_path",
+            ],
+            update=False,
+        )
+    except Exception:
+        return None
+
+
+def _add_status_paths(status, torrent_id, label, add) -> None:
+    active = status.get("state") in ACTIVE_STATES
+    size = int(status.get("total_size") or 0)
+    for path in {
+        status.get("download_location"),
+        status.get("save_path"),
+    }:
+        if path:
+            add(
+                PathUse(
+                    path=path,
+                    torrent_id=torrent_id,
+                    label=label,
+                    active=active,
+                    size=size,
+                )
+            )
+    if status.get("move_completed") and status.get("move_completed_path"):
+        add(
+            PathUse(
+                path=status["move_completed_path"],
+                torrent_id=torrent_id,
+                label=label,
+                size=size,
+                kind="move_completed",
+            )
+        )
+
+
+def _add_torrent_paths(core, label_map, label_plugin, add) -> dict[str, dict]:
+    label_options: dict[str, dict] = {}
+    torrents = getattr(getattr(core, "torrentmanager", None), "torrents", {}) or {}
+
+    for torrent_id, torrent in torrents.items():
+        status = _torrent_status(torrent)
+        if status is None:
+            continue
+        label = label_map.get(torrent_id)
+        _add_status_paths(status, torrent_id, label, add)
+        if label and label_plugin is not None and label not in label_options:
+            try:
+                label_options[label] = label_plugin.get_options(label) or {}
+            except Exception:
+                label_options[label] = {}
+    return label_options
+
+
+def _add_label_paths(label_options: dict[str, dict], add) -> None:
+    for label, options in label_options.items():
+        if options.get("apply_move_completed") and options.get("move_completed"):
+            target = options.get("move_completed_path")
+            if target:
+                add(PathUse(path=target, label=label, kind="move_completed"))
+
+
 def collect_paths(core, label_plugin=None) -> list[PathUse]:
     """Collect paths Deluge can write to.
 
@@ -216,94 +303,18 @@ def collect_paths(core, label_plugin=None) -> list[PathUse]:
             seen.add(key)
             uses.append(use)
 
-    try:
-        config = core.get_config_values(
-            ["download_location", "move_completed", "move_completed_path"]
-        )
-    except Exception:
-        config = {}
-    default = config.get("download_location")
-    if default:
-        add(PathUse(path=default, kind="session"))
-    move_target = config.get("move_completed_path")
-    if config.get("move_completed") and move_target:
-        add(PathUse(path=move_target, kind="move_completed"))
-
+    _add_config_paths(core, add)
     label_map = getattr(label_plugin, "torrent_labels", {}) or {}
-    label_options: dict[str, dict] = {}
-    torrents = getattr(getattr(core, "torrentmanager", None), "torrents", {}) or {}
-
-    for torrent_id, torrent in torrents.items():
-        try:
-            status = torrent.get_status(
-                [
-                    "download_location",
-                    "save_path",
-                    "state",
-                    "total_size",
-                    "move_completed",
-                    "move_completed_path",
-                ],
-                update=False,
-            )
-        except Exception:
-            continue
-        label = label_map.get(torrent_id)
-        active = status.get("state") in ACTIVE_STATES
-        for path in {
-            status.get("download_location"),
-            status.get("save_path"),
-        }:
-            if path:
-                add(
-                    PathUse(
-                        path=path,
-                        torrent_id=torrent_id,
-                        label=label,
-                        active=active,
-                        size=int(status.get("total_size") or 0),
-                    )
-                )
-        if status.get("move_completed") and status.get("move_completed_path"):
-            add(
-                PathUse(
-                    path=status["move_completed_path"],
-                    torrent_id=torrent_id,
-                    label=label,
-                    size=int(status.get("total_size") or 0),
-                    kind="move_completed",
-                )
-            )
-        if label and label_plugin is not None and label not in label_options:
-            try:
-                label_options[label] = label_plugin.get_options(label) or {}
-            except Exception:
-                label_options[label] = {}
-
-    for label, options in label_options.items():
-        if options.get("apply_move_completed") and options.get("move_completed"):
-            target = options.get("move_completed_path")
-            if target:
-                add(PathUse(path=target, label=label, kind="move_completed"))
-
+    label_options = _add_torrent_paths(core, label_map, label_plugin, add)
+    _add_label_paths(label_options, add)
     return uses
 
 
-def build_disks(
+def _group_uses(
     uses: Iterable[PathUse],
     mounts: Sequence[Mount],
-    *,
-    include_all: bool = True,
-    thresholds: Mapping[str, int] | None = None,
-    stat_fn: Callable[[str], DiskStat | None] = disk_stat,
-    dev_fn: Callable[[str], int | None] = device_id,
-) -> tuple[list[dict], list[str]]:
-    """Group paths by filesystem and build the storage payload.
-
-    Returns ``(disks, unknown_paths)``. ``thresholds`` maps a mountpoint to
-    the minimum free bytes; a disk below it is marked ``low``.
-    """
-    thresholds = thresholds or {}
+    dev_fn: Callable[[str], int | None],
+) -> tuple[dict[int, dict], list[str]]:
     groups: dict[int, dict] = {}
     unknown: list[str] = []
 
@@ -333,8 +344,15 @@ def build_disks(
             group["torrents"].add(use.torrent_id)
         if use.label:
             group["labels"].add(use.label)
+    return groups, unknown
 
+
+def _groups_to_disks(
+    groups: dict[int, dict],
+    stat_fn: Callable[[str], DiskStat | None],
+) -> tuple[list[Disk], list[str]]:
     disks: list[Disk] = []
+    missing: list[str] = []
     for group in groups.values():
         mount = group["mount"]
         try:
@@ -342,7 +360,7 @@ def build_disks(
         except Exception:
             stat = None
         if stat is None:
-            unknown.extend(sorted(group["paths"]))
+            missing.extend(sorted(group["paths"]))
             continue
         disks.append(
             Disk(
@@ -355,21 +373,53 @@ def build_disks(
                 deluge=True,
             )
         )
+    return disks, missing
+
+
+def _append_unused_mounts(
+    disks: list[Disk],
+    used_devs: set[int],
+    mounts: Sequence[Mount],
+    stat_fn: Callable[[str], DiskStat | None],
+    dev_fn: Callable[[str], int | None],
+) -> None:
+    for mount in real_mounts(mounts):
+        try:
+            dev = dev_fn(mount.mountpoint)
+            if dev is None or dev in used_devs:
+                continue
+            stat = stat_fn(mount.mountpoint)
+        except Exception:
+            continue
+        if stat is None:
+            continue
+        disks.append(Disk(mount=mount.mountpoint, fstype=mount.fstype, stat=stat))
+        used_devs.add(dev)
+
+
+def build_disks(
+    uses: Iterable[PathUse],
+    mounts: Sequence[Mount],
+    *,
+    include_all: bool = True,
+    thresholds: Mapping[str, int] | None = None,
+    stat_fn: Callable[[str], DiskStat | None] = disk_stat,
+    dev_fn: Callable[[str], int | None] = device_id,
+) -> tuple[list[dict], list[str]]:
+    """Group paths by filesystem and build the storage payload.
+
+    Returns ``(disks, unknown_paths)``. ``thresholds`` maps a mountpoint to
+    the minimum free bytes; a disk below it is marked ``low``.
+    """
+    thresholds = thresholds or {}
+    groups, unknown = _group_uses(uses, mounts, dev_fn)
+    disks, missing = _groups_to_disks(groups, stat_fn)
+    unknown.extend(missing)
 
     if include_all:
-        used_devs = set(groups)
-        for mount in real_mounts(mounts):
-            try:
-                dev = dev_fn(mount.mountpoint)
-                if dev is None or dev in used_devs:
-                    continue
-                stat = stat_fn(mount.mountpoint)
-            except Exception:
-                continue
-            if stat is None:
-                continue
-            disks.append(Disk(mount=mount.mountpoint, fstype=mount.fstype, stat=stat))
-            used_devs.add(dev)
+        _append_unused_mounts(
+            disks, set(groups), mounts, stat_fn, dev_fn
+        )
 
     for disk in disks:
         threshold = thresholds.get(disk.mount)

@@ -176,6 +176,60 @@ class Core(CorePluginBase):
         self._emit_low_targets(uses, mounts, aliases, disks)
         return payload
 
+    def _prune_state(self, existing):
+        state = self._state
+        state.paused_torrents &= existing
+        for mount in tuple(state.paused_by_mount):
+            state.paused_by_mount[mount] &= existing
+            if not state.paused_by_mount[mount]:
+                del state.paused_by_mount[mount]
+
+    def _pause_for_event(
+        self, event, uses, mounts, aliases, torrents, existing, core
+    ):
+        mount = event["mount"]
+        state = self._state
+        ids = guard.torrents_to_pause(
+            uses,
+            mounts,
+            mount,
+            state.paused_torrents,
+            aliases.get(mount, {mount}),
+        ) & existing
+        ids = self._active_ids(torrents, ids)
+        if not ids:
+            return
+        paused = self._per_torrent(core.pause_torrents, ids, "pause")
+        if not paused:
+            return
+        state.paused_torrents.update(paused)
+        state.paused_by_mount.setdefault(mount, set()).update(paused)
+        log.warning(
+            "DiskGuard: paused %d torrent(s) on %s",
+            len(paused),
+            mount,
+        )
+
+    def _resume_for_event(self, event, existing, core):
+        mount = event["mount"]
+        state = self._state
+        ids = guard.torrents_to_resume(
+            state, mount, existing
+        ) & state.paused_torrents
+        resumed = self._per_torrent(core.resume_torrents, ids, "resume")
+        state.paused_torrents.difference_update(resumed)
+        failed = ids - resumed
+        if failed:
+            state.paused_by_mount[mount] = failed
+        else:
+            state.paused_by_mount.pop(mount, None)
+        if resumed:
+            log.info(
+                "DiskGuard: resumed %d torrent(s) on %s",
+                len(resumed),
+                mount,
+            )
+
     def _apply_events(self, events, uses, mounts, aliases=None):
         if not events or not self._enabled():
             return
@@ -189,57 +243,15 @@ class Core(CorePluginBase):
         if not isinstance(torrents, dict):
             torrents = {}
         existing = set(torrents)
-        state = self._state
-        state.paused_torrents &= existing
-        for mount in list(state.paused_by_mount):
-            state.paused_by_mount[mount] &= existing
-            if not state.paused_by_mount[mount]:
-                del state.paused_by_mount[mount]
+        self._prune_state(existing)
 
         for event in events:
-            mount = event["mount"]
             if event["event"] == "low" and event.get("action") == "pause":
-                ids = guard.torrents_to_pause(
-                    uses,
-                    mounts,
-                    mount,
-                    state.paused_torrents,
-                    aliases.get(mount, {mount}),
-                ) & existing
-                ids = self._active_ids(torrents, ids)
-                if not ids:
-                    continue
-                paused = self._per_torrent(
-                    core.pause_torrents, ids, "pause"
-                )
-                if not paused:
-                    continue
-                state.paused_torrents.update(paused)
-                state.paused_by_mount.setdefault(mount, set()).update(paused)
-                log.warning(
-                    "DiskGuard: paused %d torrent(s) on %s",
-                    len(paused),
-                    mount,
+                self._pause_for_event(
+                    event, uses, mounts, aliases, torrents, existing, core
                 )
             elif event["event"] == "ok":
-                ids = guard.torrents_to_resume(
-                    state, mount, existing
-                ) & state.paused_torrents
-                resumed = self._per_torrent(
-                    core.resume_torrents, ids, "resume"
-                )
-                state.paused_torrents.difference_update(resumed)
-                failed = ids - resumed
-                if failed:
-                    state.paused_by_mount[mount] = failed
-                else:
-                    state.paused_by_mount.pop(mount, None)
-                if resumed:
-                    log.info(
-                        "DiskGuard: resumed %d torrent(s) on %s",
-                        len(resumed),
-                        mount,
-                    )
+                self._resume_for_event(event, existing, core)
 
     @staticmethod
     def _per_torrent(action, ids, verb):
@@ -270,13 +282,32 @@ class Core(CorePluginBase):
                 active.add(torrent_id)
         return active
 
-    def _emit_low_targets(self, uses, mounts, aliases, disks):
-        if not self._enabled():
-            return
+    @staticmethod
+    def _current_torrent_paths(uses) -> dict[str, set[str]]:
         current: dict[str, set[str]] = {}
         for use in uses:
             if use.torrent_id and use.path:
                 current.setdefault(use.torrent_id, set()).add(use.path)
+        return current
+
+    def _emit_low_target(
+        self, manager, torrent_id, path, mounts, aliases, disks
+    ) -> None:
+        disk = self._low_disk_for_path(path, mounts, aliases, disks)
+        if disk is None:
+            return
+        try:
+            manager.emit(LowTargetEvent(torrent_id, path, disk["mount"]))
+        except Exception:
+            log.exception(
+                "DiskGuard: could not emit low-target event for %s",
+                torrent_id,
+            )
+
+    def _emit_low_targets(self, uses, mounts, aliases, disks):
+        if not self._enabled():
+            return
+        current = self._current_torrent_paths(uses)
         previous = self._torrent_paths
         self._torrent_paths = current
         if previous is None:
@@ -287,18 +318,9 @@ class Core(CorePluginBase):
             return
         for torrent_id, paths in current.items():
             for path in sorted(paths - previous.get(torrent_id, set())):
-                disk = self._low_disk_for_path(path, mounts, aliases, disks)
-                if disk is None:
-                    continue
-                try:
-                    manager.emit(
-                        LowTargetEvent(torrent_id, path, disk["mount"])
-                    )
-                except Exception:
-                    log.exception(
-                        "DiskGuard: could not emit low-target event for %s",
-                        torrent_id,
-                    )
+                self._emit_low_target(
+                    manager, torrent_id, path, mounts, aliases, disks
+                )
 
     def add_event_sink(self, sink):
         if sink not in self._sinks:
@@ -332,7 +354,7 @@ class Core(CorePluginBase):
         self._last_events = self._last_events[-50:]
         for event in events:
             snapshot = dict(event)
-            for sink in list(self._sinks):
+            for sink in tuple(self._sinks):
                 try:
                     sink(dict(snapshot))
                 except Exception:

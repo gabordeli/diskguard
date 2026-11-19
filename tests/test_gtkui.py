@@ -439,7 +439,7 @@ class FakeDiskGuard:
 @pytest.fixture(scope="module")
 def gtk_ui():
     plugin = GtkUIPlugin("DiskGuard")
-    yield plugin.plugin
+    return plugin.plugin
 
 
 def test_gtk_plugin_entry_point(gtk_ui):
@@ -517,8 +517,8 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     fake_core = FakeDiskGuard(payload, config)
     preferences = FakePreferences()
     statusbar = FakeStatusBar()
-    FakeGLib.timeouts = {}
-    FakeGLib.next_id = 1
+    monkeypatch.setattr(FakeGLib, "timeouts", {})
+    monkeypatch.setattr(FakeGLib, "next_id", 1)
     view_menu = FakeWidget()
     main_window = FakeMainWindow(view_menu)
 
@@ -557,7 +557,7 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     monkeypatch.setattr(
         client, "deregister_event_handler", deregister, raising=False
     )
-    FakeMessageDialog.instances = []
+    monkeypatch.setattr(FakeMessageDialog, "instances", [])
 
     gtk_ui.enable()
     assert preferences.pages["DiskGuard"] is gtk_ui._page

@@ -45,6 +45,48 @@ def _non_negative_float(value, name: str) -> float:
     return number
 
 
+def _reject_unknown(payload: dict, allowed: frozenset[str], message: str) -> None:
+    unknown = set(payload) - allowed
+    if unknown:
+        raise ValueError(
+            message.format(keys=", ".join(sorted(map(str, unknown))))
+        )
+
+
+def _validate_per_mount_entry(mount: str, raw: dict) -> dict:
+    if not isinstance(mount, str) or not mount:
+        raise ValueError("per_mount keys must be non-empty mountpoints")
+    if not isinstance(raw, dict):
+        raise ValueError(f"per_mount[{mount}] must be an object")
+    _reject_unknown(
+        raw,
+        MOUNT_KEYS,
+        f"unknown per_mount keys for {mount}: {{keys}}",
+    )
+    entry: dict = {}
+    for key in ("min_free_gb", "resume_margin_gb"):
+        if key in raw:
+            entry[key] = _non_negative_float(
+                raw[key], f"per_mount[{mount}].{key}"
+            )
+    if "action" in raw:
+        if raw["action"] not in ACTIONS:
+            raise ValueError(
+                f"per_mount[{mount}].action must be notify or pause"
+            )
+        entry["action"] = raw["action"]
+    return entry
+
+
+def _validate_per_mount(value: dict) -> dict[str, dict]:
+    if not isinstance(value, dict):
+        raise ValueError("per_mount must be an object")
+    return {
+        mount: _validate_per_mount_entry(mount, raw)
+        for mount, raw in value.items()
+    }
+
+
 def validate_guard_config(payload: dict) -> dict:
     """Validate a partial guard config and return normalised known keys.
 
@@ -53,11 +95,7 @@ def validate_guard_config(payload: dict) -> dict:
     """
     if not isinstance(payload, dict):
         raise ValueError("config must be an object")
-    unknown = set(payload) - CONFIG_KEYS
-    if unknown:
-        raise ValueError(
-            f"unknown config keys: {', '.join(sorted(map(str, unknown)))}"
-        )
+    _reject_unknown(payload, CONFIG_KEYS, "unknown config keys: {keys}")
 
     clean: dict = {}
     if "enabled" in payload:
@@ -67,37 +105,8 @@ def validate_guard_config(payload: dict) -> dict:
     for key in ("default_min_free_gb", "resume_margin_gb"):
         if key in payload:
             clean[key] = _non_negative_float(payload[key], key)
-
     if "per_mount" in payload:
-        per_mount = payload["per_mount"]
-        if not isinstance(per_mount, dict):
-            raise ValueError("per_mount must be an object")
-        mounts: dict[str, dict] = {}
-        for mount, raw in per_mount.items():
-            if not isinstance(mount, str) or not mount:
-                raise ValueError("per_mount keys must be non-empty mountpoints")
-            if not isinstance(raw, dict):
-                raise ValueError(f"per_mount[{mount}] must be an object")
-            unknown_mount = set(raw) - MOUNT_KEYS
-            if unknown_mount:
-                raise ValueError(
-                    f"unknown per_mount keys for {mount}: "
-                    f"{', '.join(sorted(map(str, unknown_mount)))}"
-                )
-            entry: dict = {}
-            for key in ("min_free_gb", "resume_margin_gb"):
-                if key in raw:
-                    entry[key] = _non_negative_float(
-                        raw[key], f"per_mount[{mount}].{key}"
-                    )
-            if "action" in raw:
-                if raw["action"] not in ACTIONS:
-                    raise ValueError(
-                        f"per_mount[{mount}].action must be notify or pause"
-                    )
-                entry["action"] = raw["action"]
-            mounts[mount] = entry
-        clean["per_mount"] = mounts
+        clean["per_mount"] = _validate_per_mount(payload["per_mount"])
     return clean
 
 

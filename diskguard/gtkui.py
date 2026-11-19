@@ -157,18 +157,17 @@ class GtkUI(Gtk3PluginBase):
         gi.require_version("Gtk", "3.0")
         from deluge import component
         from deluge.ui.client import client
-        from gi.repository import Gtk
 
         self._client = client
         self._warned_targets.clear()
         client.register_event_handler(
             "LowTargetEvent", self._on_low_target_event
         )
-        page = self._build_page(Gtk)
+        page = self._build_page()
         component.get("Preferences").add_page(PAGE_NAME, page)
-        self._add_menu_entry(Gtk)
+        self._add_menu_entry()
         self._page = page
-        self._add_status_item(Gtk)
+        self._add_status_item()
         self._refresh()
         log.info("DiskGuard GTK page enabled")
 
@@ -195,11 +194,15 @@ class GtkUI(Gtk3PluginBase):
         log.info("DiskGuard GTK page disabled")
 
     def update(self):
+        # The page refreshes itself on enable and through the Refresh button.
         pass
 
-    def _add_menu_entry(self, Gtk):
+    def _add_menu_entry(self):
         from deluge import component
 
+        if self._gtk is None:
+            return
+        gtk = self._gtk
         try:
             builder = component.get("MainWindow").get_builder()
             submenu = builder.get_object("submenu_view")
@@ -210,7 +213,7 @@ class GtkUI(Gtk3PluginBase):
             log.warning("DiskGuard: View menu not found")
             return
 
-        item = Gtk.MenuItem.new_with_label(MENU_LABEL)
+        item = gtk.MenuItem.new_with_label(MENU_LABEL)
         item.set_tooltip_text("Open the DiskGuard storage and guard settings")
         item.connect("activate", self._on_menu_activate)
         submenu.append(item)
@@ -232,7 +235,7 @@ class GtkUI(Gtk3PluginBase):
         except Exception:
             log.exception("DiskGuard: menu entry removal failed")
 
-    def _add_status_item(self, Gtk):
+    def _add_status_item(self):
         from deluge import component
         from gi.repository import GLib
 
@@ -276,8 +279,8 @@ class GtkUI(Gtk3PluginBase):
         component.get("Preferences").show(PAGE_NAME)
 
     def _refresh_status_item(self):
-        if self._client is None:
-            return True
+        if self._client is None or self._status_item is None:
+            return False
         try:
             deferred = self._client.diskguard.get_storage()
         except Exception:
@@ -288,7 +291,8 @@ class GtkUI(Gtk3PluginBase):
 
     def _ignore_status_error(self, failure):
         log.debug("DiskGuard: status bar refresh failed: %s", failure)
-        return None
+        # A non-Failure return marks the errback as handled.
+        return failure.getErrorMessage()
 
     def _update_status_item(self, payload):
         if self._status_item is None:
@@ -312,7 +316,7 @@ class GtkUI(Gtk3PluginBase):
             f"DiskGuard: {summary['disks']} filesystems, "
             f"{summary['low']} low, {free} free; click for details."
         )
-        return payload
+        return summary
 
     def _on_menu_activate(self, widget=None):
         from deluge import component
@@ -341,17 +345,18 @@ class GtkUI(Gtk3PluginBase):
         )
         dialog.show()
 
-    def _install_css(self, Gtk):
+    def _install_css(self):
         try:
             from gi.repository import Gdk
 
-            provider = Gtk.CssProvider()
+            gtk = self._gtk
+            provider = gtk.CssProvider()
             provider.load_from_data(CSS.encode("utf-8"))
             screen = Gdk.Screen.get_default()
             if screen is None:
                 return
-            Gtk.StyleContext.add_provider_for_screen(
-                screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            gtk.StyleContext.add_provider_for_screen(
+                screen, provider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
             )
             self._css_provider = provider
             self._screen = screen
@@ -378,61 +383,64 @@ class GtkUI(Gtk3PluginBase):
     def _style(self, widget, name):
         widget.get_style_context().add_class(name)
 
-    def _label(self, Gtk, text, css_class=None):
-        label = Gtk.Label(label=text)
+    def _label(self, text, css_class=None):
+        label = self._gtk.Label(label=text)
         label.set_xalign(0)
         if css_class:
             self._style(label, css_class)
         return label
 
-    def _spin_button(self, Gtk):
-        spin = Gtk.SpinButton()
+    def _spin_button(self):
+        spin = self._gtk.SpinButton()
         spin.set_range(0, 1000000)
         spin.set_digits(1)
         spin.set_increments(1, 10)
         return spin
 
-    def _build_page(self, Gtk):
-        self._gtk = Gtk
-        self._install_css(Gtk)
+    def _build_page(self):
+        from gi.repository import Gtk
 
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self._gtk = Gtk
+        gtk = self._gtk
+        self._install_css()
+
+        page = gtk.Box(orientation=gtk.Orientation.VERTICAL, spacing=14)
         page.set_margin_start(18)
         page.set_margin_end(18)
         page.set_margin_top(18)
         page.set_margin_bottom(18)
 
-        self._build_header(Gtk, page)
-        self._build_summary(Gtk, page)
-        self._build_filesystems(Gtk, page)
-        self._build_settings(Gtk, page)
+        self._build_header(page)
+        self._build_summary(page)
+        self._build_filesystems(page)
+        self._build_settings(page)
 
-        self._status = self._label(Gtk, "", "diskguard-meta")
+        self._status = self._label("", "diskguard-meta")
         self._status.set_line_wrap(True)
         page.pack_start(self._status, False, False, 0)
 
         page.show_all()
         return page
 
-    def _build_header(self, Gtk, page):
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+    def _build_header(self, page):
+        gtk = self._gtk
+        header = gtk.Box(orientation=gtk.Orientation.HORIZONTAL, spacing=12)
 
-        icon = Gtk.Image.new_from_icon_name(
-            "drive-harddisk", Gtk.IconSize.DIALOG
+        icon = gtk.Image.new_from_icon_name(
+            "drive-harddisk", gtk.IconSize.DIALOG
         )
-        icon.set_valign(Gtk.Align.START)
+        icon.set_valign(gtk.Align.START)
         header.pack_start(icon, False, False, 0)
 
-        titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        titles = gtk.Box(orientation=gtk.Orientation.VERTICAL, spacing=2)
         titles.pack_start(
-            self._label(Gtk, "DiskGuard", "diskguard-title"),
+            self._label("DiskGuard", "diskguard-title"),
             False,
             False,
             0,
         )
         titles.pack_start(
             self._label(
-                Gtk,
                 "Per-filesystem free space and guard",
                 "diskguard-subtitle",
             ),
@@ -442,23 +450,24 @@ class GtkUI(Gtk3PluginBase):
         )
         header.pack_start(titles, True, True, 0)
 
-        refresh = Gtk.Button(label="Refresh disks")
+        refresh = gtk.Button(label="Refresh disks")
         refresh.connect("clicked", self._on_refresh)
         refresh.set_tooltip_text(
             "Reload the storage view; guard settings are saved separately."
         )
-        refresh.set_valign(Gtk.Align.CENTER)
+        refresh.set_valign(gtk.Align.CENTER)
         header.pack_end(refresh, False, False, 0)
 
         page.pack_start(header, False, False, 0)
 
-    def _stat_box(self, Gtk, parent, caption):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    def _stat_box(self, parent, caption):
+        gtk = self._gtk
+        box = gtk.Box(orientation=gtk.Orientation.VERTICAL, spacing=2)
         self._style(box, "diskguard-stat")
-        value = self._label(Gtk, "—", "diskguard-stat-value")
+        value = self._label("—", "diskguard-stat-value")
         box.pack_start(value, False, False, 0)
         box.pack_start(
-            self._label(Gtk, caption, "diskguard-stat-label"),
+            self._label(caption, "diskguard-stat-label"),
             False,
             False,
             0,
@@ -466,60 +475,58 @@ class GtkUI(Gtk3PluginBase):
         parent.pack_start(box, True, True, 0)
         return value
 
-    def _build_summary(self, Gtk, page):
-        summary = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        self._disk_count_label = self._stat_box(
-            Gtk, summary, "Filesystems"
-        )
-        self._low_count_label = self._stat_box(Gtk, summary, "Low disks")
-        self._free_total_label = self._stat_box(
-            Gtk, summary, "Free (Deluge)"
-        )
-        self._capacity_box(Gtk, summary)
+    def _build_summary(self, page):
+        gtk = self._gtk
+        summary = gtk.Box(orientation=gtk.Orientation.HORIZONTAL, spacing=10)
+        self._disk_count_label = self._stat_box(summary, "Filesystems")
+        self._low_count_label = self._stat_box(summary, "Low disks")
+        self._free_total_label = self._stat_box(summary, "Free (Deluge)")
+        self._capacity_box(summary)
         page.pack_start(summary, False, False, 0)
 
-    def _build_filesystems(self, Gtk, page):
-        heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    def _build_filesystems(self, page):
+        gtk = self._gtk
+        heading = gtk.Box(orientation=gtk.Orientation.HORIZONTAL, spacing=8)
         heading.pack_start(
-            self._label(Gtk, "Filesystems", "diskguard-section"),
+            self._label("Filesystems", "diskguard-section"),
             False,
             False,
             0,
         )
         hint = self._label(
-            Gtk, "Only Deluge-used disks are guarded", "diskguard-meta"
+            "Only Deluge-used disks are guarded", "diskguard-meta"
         )
         hint.set_xalign(1)
         heading.pack_end(hint, False, False, 0)
         page.pack_start(heading, False, False, 0)
 
-        self._rows_box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=8
+        self._rows_box = gtk.Box(
+            orientation=gtk.Orientation.VERTICAL, spacing=8
         )
         page.pack_start(self._rows_box, False, False, 0)
 
-    def _build_settings(self, Gtk, page):
-        settings = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    def _build_settings(self, page):
+        gtk = self._gtk
+        settings = gtk.Box(orientation=gtk.Orientation.VERTICAL, spacing=10)
         self._style(settings, "diskguard-card")
 
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header = gtk.Box(orientation=gtk.Orientation.HORIZONTAL, spacing=8)
         header.pack_start(
-            self._label(Gtk, "Guard settings", "diskguard-section"),
+            self._label("Guard settings", "diskguard-section"),
             False,
             False,
             0,
         )
-        self._save_button = Gtk.Button(label="Save guard settings")
+        self._save_button = gtk.Button(label="Save guard settings")
         self._save_button.get_style_context().add_class("suggested-action")
         self._save_button.connect("clicked", self._on_save)
         header.pack_end(self._save_button, False, False, 0)
-        reload_button = Gtk.Button(label="Reload")
+        reload_button = gtk.Button(label="Reload")
         reload_button.connect("clicked", self._on_reload)
         header.pack_end(reload_button, False, False, 0)
         settings.pack_start(header, False, False, 0)
 
         hint = self._label(
-            Gtk,
             "Changes stay on this page until you click Save guard settings. "
             "Reload discards them and loads the daemon config.",
             "diskguard-meta",
@@ -527,37 +534,32 @@ class GtkUI(Gtk3PluginBase):
         hint.set_line_wrap(True)
         settings.pack_start(hint, False, False, 0)
 
-        defaults = Gtk.Grid(column_spacing=10, row_spacing=8)
-        self._enabled = Gtk.CheckButton(label="Guard enabled")
+        defaults = gtk.Grid(column_spacing=10, row_spacing=8)
+        self._enabled = gtk.CheckButton(label="Guard enabled")
         self._enabled.connect("toggled", self._mark_dirty)
         defaults.attach(self._enabled, 0, 0, 6, 1)
-        self._default_min = self._spin_button(Gtk)
+        self._default_min = self._spin_button()
         self._default_min.connect("value-changed", self._on_default_changed)
-        self._default_margin = self._spin_button(Gtk)
+        self._default_margin = self._spin_button()
         self._default_margin.connect(
             "value-changed", self._on_default_changed
         )
-        defaults.attach(
-            self._label(Gtk, "Minimum free"), 0, 1, 1, 1
-        )
+        defaults.attach(self._label("Minimum free"), 0, 1, 1, 1)
         defaults.attach(self._default_min, 1, 1, 1, 1)
-        defaults.attach(self._label(Gtk, "GB"), 2, 1, 1, 1)
-        defaults.attach(
-            self._label(Gtk, "Resume margin"), 3, 1, 1, 1
-        )
+        defaults.attach(self._label("GB"), 2, 1, 1, 1)
+        defaults.attach(self._label("Resume margin"), 3, 1, 1, 1)
         defaults.attach(self._default_margin, 4, 1, 1, 1)
-        defaults.attach(self._label(Gtk, "GB"), 5, 1, 1, 1)
+        defaults.attach(self._label("GB"), 5, 1, 1, 1)
         settings.pack_start(defaults, False, False, 0)
 
-        settings.pack_start(Gtk.Separator(), False, False, 0)
+        settings.pack_start(gtk.Separator(), False, False, 0)
         settings.pack_start(
-            self._label(Gtk, "Per-mount overrides", "diskguard-section"),
+            self._label("Per-mount overrides", "diskguard-section"),
             False,
             False,
             0,
         )
         override_hint = self._label(
-            Gtk,
             "Check Override on a disk row to edit that disk. Unchecked = "
             "uses the defaults. 'not guarded' = no current Deluge path "
             "uses that disk. One save writes every row.",
@@ -566,11 +568,11 @@ class GtkUI(Gtk3PluginBase):
         override_hint.set_line_wrap(True)
         settings.pack_start(override_hint, False, False, 0)
 
-        self._mount_grid = Gtk.Grid(column_spacing=10, row_spacing=6)
+        self._mount_grid = gtk.Grid(column_spacing=10, row_spacing=6)
         settings.pack_start(self._mount_grid, False, False, 0)
 
         self._settings_status = self._label(
-            Gtk, "Loading guard settings…", "diskguard-meta"
+            "Loading guard settings…", "diskguard-meta"
         )
         self._settings_status.set_line_wrap(True)
         settings.pack_start(self._settings_status, False, False, 0)
@@ -619,8 +621,8 @@ class GtkUI(Gtk3PluginBase):
         self._rounded_rect(cr, 0, 0, fill_width, height, radius)
         cr.fill()
 
-    def _usage_bar(self, Gtk, fraction, low):
-        bar = Gtk.DrawingArea()
+    def _usage_bar(self, fraction, low):
+        bar = self._gtk.DrawingArea()
         bar.set_size_request(-1, 12)
         bar.set_hexpand(True)
         bar.fraction = fraction
@@ -657,80 +659,77 @@ class GtkUI(Gtk3PluginBase):
         )
         cr.stroke()
 
-    def _capacity_box(self, Gtk, parent):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    def _capacity_box(self, parent):
+        gtk = self._gtk
+        box = gtk.Box(orientation=gtk.Orientation.VERTICAL, spacing=2)
         self._style(box, "diskguard-stat")
-        ring = Gtk.DrawingArea()
+        ring = gtk.DrawingArea()
         ring.set_size_request(64, 64)
-        ring.set_halign(Gtk.Align.CENTER)
-        ring.set_valign(Gtk.Align.CENTER)
+        ring.set_halign(gtk.Align.CENTER)
+        ring.set_valign(gtk.Align.CENTER)
         ring.fraction = 0.0
         ring.low = False
         ring.connect("draw", self._draw_capacity)
         box.pack_start(ring, False, False, 0)
         self._capacity_bar = ring
         self._capacity_label = self._label(
-            Gtk, "— used", "diskguard-stat-value"
+            "— used", "diskguard-stat-value"
         )
         self._capacity_label.set_xalign(0.5)
         box.pack_start(self._capacity_label, False, False, 0)
-        caption = self._label(
-            Gtk, "Deluge capacity", "diskguard-stat-label"
-        )
+        caption = self._label("Deluge capacity", "diskguard-stat-label")
         caption.set_xalign(0.5)
         box.pack_start(caption, False, False, 0)
         parent.pack_start(box, True, True, 0)
 
-    def _build_disk_card(self, Gtk, disk):
+    def _build_disk_card(self, disk):
+        gtk = self._gtk
         low = bool(disk.get("low"))
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card = gtk.Box(orientation=gtk.Orientation.VERTICAL, spacing=8)
         self._style(card, "diskguard-card")
         if low:
             self._style(card, "diskguard-card-low")
 
-        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        icon = Gtk.Image.new_from_icon_name(
-            "drive-harddisk-symbolic", Gtk.IconSize.BUTTON
+        top = gtk.Box(orientation=gtk.Orientation.HORIZONTAL, spacing=10)
+        icon = gtk.Image.new_from_icon_name(
+            "drive-harddisk-symbolic", gtk.IconSize.BUTTON
         )
-        icon.set_valign(Gtk.Align.START)
+        icon.set_valign(gtk.Align.START)
         top.pack_start(icon, False, False, 0)
 
-        info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        info = gtk.Box(orientation=gtk.Orientation.VERTICAL, spacing=2)
         mount = self._label(
-            Gtk, str(disk.get("mount", "")), "diskguard-mount"
+            str(disk.get("mount", "")), "diskguard-mount"
         )
         mount.set_line_wrap(True)
         info.pack_start(mount, False, False, 0)
-        meta = self._label(Gtk, disk_meta(disk), "diskguard-meta")
+        meta = self._label(disk_meta(disk), "diskguard-meta")
         meta.set_line_wrap(True)
         info.pack_start(meta, False, False, 0)
         labels = self._label(
-            Gtk, f"Labels: {disk_labels(disk)}", "diskguard-meta"
+            f"Labels: {disk_labels(disk)}", "diskguard-meta"
         )
         labels.set_line_wrap(True)
         info.pack_start(labels, False, False, 0)
         top.pack_start(info, True, True, 0)
 
-        badge = self._label(Gtk, "LOW" if low else "OK")
+        badge = self._label("LOW" if low else "OK")
         self._style(badge, "diskguard-badge")
         self._style(
             badge, "diskguard-badge-low" if low else "diskguard-badge-ok"
         )
-        badge.set_valign(Gtk.Align.START)
+        badge.set_valign(gtk.Align.START)
         top.pack_end(badge, False, False, 0)
         card.pack_start(top, False, False, 0)
 
         fraction = disk_used_fraction(disk)
-        card.pack_start(
-            self._usage_bar(Gtk, fraction, low), False, False, 0
-        )
+        card.pack_start(self._usage_bar(fraction, low), False, False, 0)
 
-        footer = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL, spacing=12
+        footer = gtk.Box(
+            orientation=gtk.Orientation.HORIZONTAL, spacing=12
         )
         footer.pack_start(
             self._label(
-                Gtk,
                 f"Torrents: {int(disk.get('torrents') or 0)}",
                 "diskguard-meta",
             ),
@@ -740,7 +739,6 @@ class GtkUI(Gtk3PluginBase):
         )
         footer.pack_end(
             self._label(
-                Gtk,
                 "Deluge" if disk.get("deluge") else "Not used by Deluge",
                 "diskguard-meta",
             ),
@@ -755,16 +753,16 @@ class GtkUI(Gtk3PluginBase):
             card.set_tooltip_text("\n".join(str(path) for path in paths))
         return card
 
-    def _build_unknown_card(self, Gtk, unknown):
-        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+    def _build_unknown_card(self, unknown):
+        gtk = self._gtk
+        card = gtk.Box(orientation=gtk.Orientation.HORIZONTAL, spacing=10)
         self._style(card, "diskguard-card")
-        icon = Gtk.Image.new_from_icon_name(
-            "dialog-warning-symbolic", Gtk.IconSize.BUTTON
+        icon = gtk.Image.new_from_icon_name(
+            "dialog-warning-symbolic", gtk.IconSize.BUTTON
         )
-        icon.set_valign(Gtk.Align.START)
+        icon.set_valign(gtk.Align.START)
         card.pack_start(icon, False, False, 0)
         label = self._label(
-            Gtk,
             "Unknown paths: " + ", ".join(str(path) for path in unknown),
             "diskguard-meta",
         )
@@ -794,17 +792,17 @@ class GtkUI(Gtk3PluginBase):
 
     def _render_storage(self, payload):
         self._storage = payload or {"disks": [], "unknown": []}
-        for child in list(self._rows_box.get_children()):
+        for child in self._rows_box.get_children():
             self._rows_box.remove(child)
         self._unknown_label = None
         for disk in self._storage.get("disks") or []:
             self._rows_box.pack_start(
-                self._build_disk_card(self._gtk, disk), False, False, 0
+                self._build_disk_card(disk), False, False, 0
             )
         unknown = self._storage.get("unknown") or []
         if unknown:
             self._rows_box.pack_start(
-                self._build_unknown_card(self._gtk, unknown),
+                self._build_unknown_card(unknown),
                 False,
                 False,
                 0,
@@ -868,6 +866,67 @@ class GtkUI(Gtk3PluginBase):
         row["margin"].set_sensitive(active)
         row["action"].set_sensitive(active)
 
+    def _add_mount_headers(self):
+        headers = (
+            "Override",
+            "Mount",
+            "Min free (GB)",
+            "Margin (GB)",
+            "Action",
+        )
+        for column, text in enumerate(headers):
+            self._mount_grid.attach(
+                self._label(text, "diskguard-column"),
+                column,
+                0,
+                1,
+                1,
+            )
+
+    def _mount_row(
+        self, mount, options, default_min, default_margin, guarded
+    ):
+        gtk = self._gtk
+        override = gtk.CheckButton()
+        override.set_tooltip_text(f"Use a custom threshold for {mount}")
+        override.set_active(options is not None)
+        override.connect("toggled", self._on_override_toggled, mount)
+        mount_text = mount
+        if mount not in guarded:
+            mount_text += "  ·  not guarded"
+        mount_label = self._label(mount_text, "diskguard-row-mount")
+        mount_label.set_hexpand(True)
+        min_spin = self._spin_button()
+        margin_spin = self._spin_button()
+        action = gtk.ComboBoxText()
+        action.append_text("pause")
+        action.append_text("notify")
+        if options:
+            min_spin.set_value(
+                float(options.get("min_free_gb", default_min))
+            )
+            margin_spin.set_value(
+                float(options.get("resume_margin_gb", default_margin))
+            )
+            action.set_active(
+                0 if options.get("action", "pause") == "pause" else 1
+            )
+        else:
+            min_spin.set_value(default_min)
+            margin_spin.set_value(default_margin)
+            action.set_active(0)
+        min_spin.connect("value-changed", self._mark_dirty)
+        margin_spin.connect("value-changed", self._mark_dirty)
+        action.connect("changed", self._mark_dirty)
+        row = {
+            "override": override,
+            "min": min_spin,
+            "margin": margin_spin,
+            "action": action,
+        }
+        self._set_row_sensitive(row, options is not None)
+        return (override, mount_label, min_spin, margin_spin, action), row
+
     def _render_mount_rows(self, force=False):
         if self._mount_grid is None:
             return
@@ -878,23 +937,9 @@ class GtkUI(Gtk3PluginBase):
             return
         self._loading = True
         try:
-            for child in list(self._mount_grid.get_children()):
+            for child in self._mount_grid.get_children():
                 self._mount_grid.remove(child)
-            headers = (
-                "Override",
-                "Mount",
-                "Min free (GB)",
-                "Margin (GB)",
-                "Action",
-            )
-            for column, text in enumerate(headers):
-                self._mount_grid.attach(
-                    self._label(self._gtk, text, "diskguard-column"),
-                    column,
-                    0,
-                    1,
-                    1,
-                )
+            self._add_mount_headers()
             self._mount_rows = {}
             default_min = float(
                 self._config.get("default_min_free_gb", 10.0)
@@ -910,66 +955,14 @@ class GtkUI(Gtk3PluginBase):
             }
             for row_index, mount in enumerate(mounts, start=1):
                 options = per_mount.get(mount)
-                override = self._gtk.CheckButton()
-                override.set_tooltip_text(
-                    f"Use a custom threshold for {mount}"
+                widgets, row = self._mount_row(
+                    mount, options, default_min, default_margin, guarded
                 )
-                override.set_active(options is not None)
-                override.connect(
-                    "toggled", self._on_override_toggled, mount
-                )
-                mount_text = mount
-                if mount not in guarded:
-                    mount_text += "  ·  not guarded"
-                mount_label = self._label(
-                    self._gtk, mount_text, "diskguard-row-mount"
-                )
-                mount_label.set_hexpand(True)
-                min_spin = self._spin_button(self._gtk)
-                margin_spin = self._spin_button(self._gtk)
-                action = self._gtk.ComboBoxText()
-                action.append_text("pause")
-                action.append_text("notify")
-                if options:
-                    min_spin.set_value(
-                        float(options.get("min_free_gb", default_min))
+                for column, widget in enumerate(widgets):
+                    self._mount_grid.attach(
+                        widget, column, row_index, 1, 1
                     )
-                    margin_spin.set_value(
-                        float(
-                            options.get(
-                                "resume_margin_gb", default_margin
-                            )
-                        )
-                    )
-                    action.set_active(
-                        0
-                        if options.get("action", "pause") == "pause"
-                        else 1
-                    )
-                else:
-                    min_spin.set_value(default_min)
-                    margin_spin.set_value(default_margin)
-                    action.set_active(0)
-                min_spin.connect("value-changed", self._mark_dirty)
-                margin_spin.connect("value-changed", self._mark_dirty)
-                action.connect("changed", self._mark_dirty)
-                self._mount_grid.attach(override, 0, row_index, 1, 1)
-                self._mount_grid.attach(
-                    mount_label, 1, row_index, 1, 1
-                )
-                self._mount_grid.attach(min_spin, 2, row_index, 1, 1)
-                self._mount_grid.attach(
-                    margin_spin, 3, row_index, 1, 1
-                )
-                self._mount_grid.attach(action, 4, row_index, 1, 1)
-                row = {
-                    "override": override,
-                    "min": min_spin,
-                    "margin": margin_spin,
-                    "action": action,
-                }
                 self._mount_rows[mount] = row
-                self._set_row_sensitive(row, options is not None)
             self._mount_names = mounts
             self._mount_grid.show_all()
         finally:
