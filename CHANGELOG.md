@@ -21,3 +21,6 @@
 
 - The UI target is a standalone GTK plugin; no `webui2` dependency and no
   separate HTTP server.
+- The plugin egg declares no runtime pip dependencies; it uses the Twisted
+  provided by Deluge. This keeps the Deluge plugin loader from resolving
+  unrelated distributions.

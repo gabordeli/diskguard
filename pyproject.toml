@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "DiskGuard"
 description = "Multi-filesystem free-space awareness and guard for Deluge 2.x"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 license = "GPL-3.0-or-later"
 authors = [{ name = "Gabor Deli", email = "gabor.deli@gmail.com" }]
 maintainers = [{ name = "Gabor Deli", email = "gabor.deli@gmail.com" }]
@@ -16,10 +16,10 @@ classifiers = [
     "Framework :: Twisted",
     "Intended Audience :: End Users/Desktop",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
-dependencies = ["Twisted>=22.4"]
 dynamic = ["version"]
 
 [project.entry-points."deluge.plugin.core"]
@@ -39,7 +39,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py39"
 extend-exclude = [".ci-venv"]
 
 [tool.ruff.lint]
