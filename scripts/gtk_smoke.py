@@ -18,12 +18,32 @@ ROOT = Path(__file__).resolve().parent.parent
 class FakePreferences:
     def __init__(self):
         self.pages = {}
+        self.shown = []
 
     def add_page(self, name, widget):
         self.pages[name] = widget
 
     def remove_page(self, name):
         self.pages.pop(name)
+
+    def show(self, page=None):
+        self.shown.append(page)
+
+
+class FakeBuilder:
+    def __init__(self, objects):
+        self.objects = objects
+
+    def get_object(self, name):
+        return self.objects.get(name)
+
+
+class FakeMainWindow:
+    def __init__(self, submenu):
+        self.builder = FakeBuilder({"submenu_view": submenu})
+
+    def get_builder(self):
+        return self.builder
 
 
 class FakeDiskGuard:
@@ -53,8 +73,21 @@ def main():
             encoding="utf-8"
         )
     )
+    import gi
+
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk
+
     preferences = FakePreferences()
-    component.get = lambda name: preferences
+    view_menu = Gtk.Menu()
+    main_window = FakeMainWindow(view_menu)
+
+    def get_component(name):
+        if name == "MainWindow":
+            return main_window
+        return preferences
+
+    component.get = get_component
     client.diskguard = FakeDiskGuard(payload)
 
     from diskguard.gtkui import GtkUI
@@ -62,8 +95,14 @@ def main():
     ui = GtkUI("DiskGuard")
     ui.enable()
     assert list(preferences.pages) == ["DiskGuard"]
+    menu_items = view_menu.get_children()
+    assert len(menu_items) == 1
+    assert menu_items[0].get_label() == "DiskGuard Storage"
+    menu_items[0].activate()
+    assert preferences.shown == ["DiskGuard"]
     ui.disable()
     assert preferences.pages == {}
+    assert view_menu.get_children() == []
     print("GTK smoke ok")
 
 

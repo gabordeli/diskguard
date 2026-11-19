@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `View` → `DiskGuard Storage` entry in the main window; it opens the
+  Preferences → DiskGuard page directly.
+
 ## [0.1.0] - 2026-11-19
 
 ### Added

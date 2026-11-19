@@ -7,7 +7,7 @@ location* only. On a server with several HDDs that hides every other filesystem,
 and a full disk can silently stop downloads. DiskGuard models each filesystem
 separately and can pause only the torrents that are writing to the full disk.
 
-**Status:** M1–M2 core (storage + guard), M3 GTK UI in progress. No release yet.
+**Status:** 0.1.0 released. The main-window entry is on `main` (unreleased).
 
 ## Why
 
@@ -21,7 +21,8 @@ shows one value, for one path. DiskGuard fills that gap:
 - exposes a stable `disks[]` payload;
 - runs a per-filesystem guard with hysteresis and notifications;
 - ships a GTK UI page/dialog for the storage view, guard settings and
-  low-disk warnings.
+  low-disk warnings (`View` → `DiskGuard Storage`, or
+  `Preferences` → `DiskGuard`).
 
 It is **standalone**: one egg contains the core plugin and the GTK UI plugin.
 The GTK client talks to the daemon through Deluge RPC; there is no `webui2`

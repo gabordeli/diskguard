@@ -33,7 +33,12 @@ Enable the plugin in Deluge:
 
 - core: `DiskGuard` in `enabled_plugins` of `core.conf` (or the GTK Plugins
   preferences when connected to the daemon);
-- GTK: enable `DiskGuard` on the GTK Plugins page, then reopen Preferences.
+- GTK: install the egg before starting `deluge-gtk`, then enable `DiskGuard`
+  on the GTK Plugins page and restart the client.
+
+The GTK plugin is loaded when `deluge-gtk` starts. If the Plugins page lists
+`DiskGuard` (that list comes from the daemon) but no DiskGuard page appears,
+the running client started before the egg was installed: restart it.
 
 Restarting `deluged` and `deluge-gtk` is a separate operational step; confirm
 it on the host.
@@ -73,15 +78,15 @@ Validation rules (enforced by `set_guard_config`):
 
 ## Verify
 
-Open `deluge-gtk` → Preferences → DiskGuard (or the DiskGuard Storage
-page/dialog). The view should list every real mount and mark the Deluge-used
+Open `deluge-gtk` → `View` → `DiskGuard Storage` (or `Preferences` →
+`DiskGuard`). The view should list every real mount and mark the Deluge-used
 ones with `deluge: true`. The guard state and thresholds can be edited there.
 
 ## Release smoke checklist
 
 1. Build the egg and install it on the daemon and the GTK client.
-2. Enable `DiskGuard`, restart `deluged`/`deluge-gtk`, open Preferences →
-   DiskGuard; the disk list and defaults must appear.
+2. Enable `DiskGuard`, restart `deluged`/`deluge-gtk`, open `View` →
+   `DiskGuard Storage`; the disk list and defaults must appear.
 3. Set a high threshold on a test mount, add a torrent there and confirm the
    guard pauses only the affected active torrents; restore the threshold.
 4. Resume the torrent manually while the disk is still low; the guard must not
@@ -100,7 +105,8 @@ PYTHONPATH=. xvfb-run -a python3 scripts/gtk_smoke.py
 ```
 
 It uses the storage fixture and a fake RPC client, and checks that the
-Preferences page can be created and removed. It does not connect to `deluged`.
+Preferences page and the main-window menu entry can be created and removed. It
+does not connect to `deluged`.
 
 ## Rollback
 

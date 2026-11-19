@@ -9,6 +9,7 @@ from deluge.plugins.pluginbase import Gtk3PluginBase
 log = logging.getLogger(__name__)
 
 PAGE_NAME = "DiskGuard"
+MENU_LABEL = "DiskGuard Storage"
 DISK_COLUMNS = (
     "Mount",
     "FS",
@@ -108,6 +109,8 @@ class GtkUI(Gtk3PluginBase):
         self._mount_margin = None
         self._mount_action = None
         self._warned_targets = set()
+        self._menu_item = None
+        self._menu_parent = None
 
     def enable(self):
         if self._page is not None:
@@ -127,6 +130,7 @@ class GtkUI(Gtk3PluginBase):
         )
         page = self._build_page(Gtk)
         component.get("Preferences").add_page(PAGE_NAME, page)
+        self._add_menu_entry(Gtk)
         self._page = page
         self._refresh()
         log.info("DiskGuard GTK page enabled")
@@ -136,6 +140,7 @@ class GtkUI(Gtk3PluginBase):
             return
         from deluge import component
 
+        self._remove_menu_entry()
         try:
             component.get("Preferences").remove_page(PAGE_NAME)
         finally:
@@ -152,6 +157,49 @@ class GtkUI(Gtk3PluginBase):
 
     def update(self):
         pass
+
+    def _add_menu_entry(self, Gtk):
+        from deluge import component
+
+        try:
+            builder = component.get("MainWindow").get_builder()
+            submenu = builder.get_object("submenu_view")
+        except Exception:
+            log.exception("DiskGuard: main window is not available")
+            return
+        if submenu is None:
+            log.warning("DiskGuard: View menu not found")
+            return
+
+        item = Gtk.MenuItem.new_with_label(MENU_LABEL)
+        item.set_tooltip_text("Open the DiskGuard storage and guard settings")
+        item.connect("activate", self._on_menu_activate)
+        submenu.append(item)
+        item.show()
+        self._menu_item = item
+        self._menu_parent = submenu
+        log.info("DiskGuard main-window entry added")
+
+    def _remove_menu_entry(self):
+        item = self._menu_item
+        parent = self._menu_parent
+        self._menu_item = None
+        self._menu_parent = None
+        if item is None or parent is None:
+            return
+        try:
+            parent.remove(item)
+            item.destroy()
+        except Exception:
+            log.exception("DiskGuard: menu entry removal failed")
+
+    def _on_menu_activate(self, widget=None):
+        from deluge import component
+
+        try:
+            component.get("Preferences").show(PAGE_NAME)
+        except Exception:
+            log.exception("DiskGuard: unable to open the storage page")
 
     def _on_low_target_event(self, torrent_id, path, mount):
         key = (torrent_id, path, mount)

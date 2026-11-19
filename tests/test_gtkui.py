@@ -26,6 +26,8 @@ class FakeWidget:
         self.kwargs = kwargs
         self.children = []
         self.callbacks = {}
+        self.shown = False
+        self.destroyed = False
 
     def pack_start(self, child, expand=False, fill=False, padding=0):
         self.children.append(child)
@@ -36,8 +38,17 @@ class FakeWidget:
     def add(self, child):
         self.children.append(child)
 
+    def append(self, child):
+        self.children.append(child)
+
+    def show(self):
+        self.shown = True
+
     def show_all(self):
         pass
+
+    def set_tooltip_text(self, text):
+        self.tooltip = text
 
     def connect(self, signal, callback):
         self.callbacks[signal] = callback
@@ -47,6 +58,17 @@ class FakeWidget:
 
     def remove(self, child):
         self.children.remove(child)
+
+    def destroy(self):
+        self.destroyed = True
+
+
+class FakeMenuItem(FakeWidget):
+    @classmethod
+    def new_with_label(cls, label):
+        item = cls(label=label)
+        item.label = label
+        return item
 
 
 class FakeLabel(FakeWidget):
@@ -132,6 +154,7 @@ class FakeGtk:
     SpinButton = FakeSpinButton
     ComboBoxText = FakeComboBoxText
     Frame = FakeWidget
+    MenuItem = FakeMenuItem
     MessageDialog = None
 
 
@@ -164,12 +187,32 @@ FakeGtk.MessageDialog = FakeMessageDialog
 class FakePreferences:
     def __init__(self):
         self.pages = {}
+        self.shown = []
 
     def add_page(self, name, widget):
         self.pages[name] = widget
 
     def remove_page(self, name):
         self.pages.pop(name)
+
+    def show(self, page=None):
+        self.shown.append(page)
+
+
+class FakeBuilder:
+    def __init__(self, objects):
+        self.objects = objects
+
+    def get_object(self, name):
+        return self.objects.get(name)
+
+
+class FakeMainWindow:
+    def __init__(self, submenu):
+        self.builder = FakeBuilder({"submenu_view": submenu})
+
+    def get_builder(self):
+        return self.builder
 
 
 class FakeDiskGuard:
@@ -272,6 +315,8 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     }
     fake_core = FakeDiskGuard(payload, config)
     preferences = FakePreferences()
+    view_menu = FakeWidget()
+    main_window = FakeMainWindow(view_menu)
 
     gi = ModuleType("gi")
     gi.require_version = lambda *args: None
@@ -283,7 +328,12 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     from deluge import component
     from deluge.ui.client import client
 
-    monkeypatch.setattr(component, "get", lambda name: preferences)
+    def get_component(name):
+        if name == "MainWindow":
+            return main_window
+        return preferences
+
+    monkeypatch.setattr(component, "get", get_component)
     monkeypatch.setattr(client, "diskguard", fake_core, raising=False)
     events = {}
 
@@ -304,6 +354,13 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
     gtk_ui.enable()
     assert preferences.pages["DiskGuard"] is gtk_ui._page
     assert len(events["LowTargetEvent"]) == 1
+    assert len(view_menu.children) == 1
+    menu_item = view_menu.children[0]
+    assert menu_item.label == "DiskGuard Storage"
+    assert menu_item.shown is True
+    assert menu_item.callbacks["activate"]
+    menu_item.callbacks["activate"](menu_item)
+    assert preferences.shown == ["DiskGuard"]
     rows = gtk_ui._rows_box.get_children()
     assert len(rows) == 4
     assert rows[-1].text.startswith("Unknown:")
@@ -349,5 +406,7 @@ def test_gtkui_enable_refresh_apply_and_disable(gtk_ui, monkeypatch):
 
     gtk_ui.disable()
     assert preferences.pages == {}
+    assert view_menu.children == []
+    assert menu_item.destroyed is True
     assert events["LowTargetEvent"] == []
     gtk_ui.disable()
